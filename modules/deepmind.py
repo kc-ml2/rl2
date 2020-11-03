@@ -16,6 +16,7 @@ class DeepMindEnc(nn.Module):
         sample = torch.FloatTensor(1, *input_shape)
         sample = self.feature(sample)
         sample = sample.view(sample.size(0), -1)
+        self.out_shape = hidden_dim
         self.fc = nn.Sequential(
             nn.Linear(sample.size(-1), hidden_dim),
             nn.ReLU()

@@ -1,5 +1,4 @@
 import os
-import gc
 import json
 from distutils.dir_util import copy_tree
 import argparse
@@ -11,15 +10,21 @@ import settings
 import utils.common as common
 import defaults
 
+import collectors
+from modules import DeepMindEnc
+import models
+import envs
+from utils.distributions import CategoricalHead, ScalarHead
+
 warnings.simplefilter('ignore', UserWarning)
 
 
-def train(args, agent_name, agent_src, train_fn=None):
+def train(args, agent_name, agent_src, model, collector, train_fn=None):
     """Template function for training various agents.
     """
     import agents
     # Create agent and save current state
-    agent = getattr(agents, agent_name)(args)
+    agent = getattr(agents, agent_name)(args, model, collector)
     logger = agent.logger
     log_dir = logger.log_dir
 
@@ -37,22 +42,29 @@ def train(args, agent_name, agent_src, train_fn=None):
     # Begin training
     env = "{}:{}".format(args.env, args.env_id)
     logger.log("Begin training {} in ".format(agent_name) + env)
-    steps = args.steps // args.num_workers
+    steps = args.steps // args.num_workers + 1
     for step in range(steps):
         if train_fn is None:
             agent.train()
         else:
             train_fn(agent, step, steps)
-        gc.collect()
     logger.log("Finished training {} in ".format(agent_name) + env)
 
 
 def a2c(args):
-    train(args, 'A2CAgent', 'a2c')
+    env = getattr(envs, args.env)(args)
+    input_shape = env.observation_space.shape
+    if len(input_shape) > 1:
+        input_shape = (input_shape[-1], *input_shape[:-1])
+    encoder = DeepMindEnc(input_shape).to(args.device)
+    actor = CategoricalHead(encoder.out_shape,
+                            env.action_space.n).to(args.device)
+    critic = ScalarHead(encoder.out_shape, 1).to(args.device)
+    optimizer = 'torch.optim.Adam'
+    model = models.ActorCriticModel(args, encoder, actor, critic, optimizer)
+    collector = collectors.PGCollector(args, env, model)
 
-
-def ppo(args):
-    train(args, 'PPOAgent', 'ppo')
+    train(args, 'A2CAgent', 'a2c', model, collector)
 
 
 if __name__ == "__main__":

@@ -5,7 +5,6 @@ import torch.nn as nn
 from modules.deepmind import DeepMindEnc
 from utils.distributions import CategoricalHead, DiagGaussianHead, ScalarHead
 
-
 class ActorCritic(nn.Module):
     def __init__(self, input_shape, n_actions, disc=True, sep=False,
                  ac=None, min_var=0.0, **kwargs):

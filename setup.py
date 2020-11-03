@@ -1,10 +1,10 @@
 from setuptools import setup
 
 # TODO: add openai/baselines
+# TODO: add torch (version1.4)
 setup(
-    name="hide",
+    name="RL2",
     install_requires=[
-        'torch',
         'tqdm',
         'termcolor',
         'tensorboardX',
@@ -14,9 +14,6 @@ setup(
         'gym[atari]',
         'sklearn',
         'psutil',
-        'ray',
-        'pybullet',
-        'seaborn',
         'mpi4py'
     ]
 )

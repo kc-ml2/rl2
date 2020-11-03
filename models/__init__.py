@@ -1,4 +1,4 @@
 import sys
 sys.path.append("../")
 
-from agents.a2c import *
+from models.actor_critic import *
