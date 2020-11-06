@@ -52,7 +52,10 @@ def train(args, agent_name, agent_src, model, collector, train_fn=None):
 
 
 def a2c(args):
+    # Create an environment
     env = getattr(envs, args.env)(args)
+
+    # Create network components for the agent
     input_shape = env.observation_space.shape
     if len(input_shape) > 1:
         input_shape = (input_shape[-1], *input_shape[:-1])
@@ -60,11 +63,40 @@ def a2c(args):
     actor = CategoricalHead(encoder.out_shape,
                             env.action_space.n).to(args.device)
     critic = ScalarHead(encoder.out_shape, 1).to(args.device)
+    # Declare optimizer
     optimizer = 'torch.optim.Adam'
+
+    # Create a model using the necessary networks
     model = models.ActorCriticModel(args, encoder, actor, critic, optimizer)
+
+    # Create a collector for managing data collection
     collector = collectors.PGCollector(args, env, model)
 
+    # Finally create an agent with the defined components
     train(args, 'A2CAgent', 'a2c', model, collector)
+
+
+def dqn(args):
+    # Create an environment
+    env = getattr(envs, args.env)(args)
+
+    # Create network components for the agent
+    input_shape = env.observation_space.shape
+    if len(input_shape) > 1:
+        input_shape = (input_shape[-1], *input_shape[:-1])
+    encoder = DeepMindEnc(input_shape).to(args.device)
+    q_head = ScalarHead(encoder.out_shape, 1).to(args.device)
+    # Declare optimizer
+    optimizer = 'torch.optim.Adam'
+
+    # Create a model using the necessary networks
+    model = models.QvalueModel(args, encoder, q_head, optimizer)
+
+    # Create a collector for managing data collection
+    collector = collectors.RBCollector(args, env, model)
+
+    # Finally create an agent with the defined components
+    train(args, 'DQNAgent', 'dqn', model, collector)
 
 
 if __name__ == "__main__":
@@ -91,6 +123,8 @@ if __name__ == "__main__":
     parser.add_argument("--num_workers", type=int, default=8)
     parser.add_argument("--n_step", type=int, default=128)
     parser.add_argument("--exp", "-e", action="store_true")
+    parser.add_argument("--defaults", "-f", action="store_false")
+    parser.add_argument("--rb_size", type=int, default=int(1e5))
 
     parser.add_argument_group("training options")
     parser.add_argument("--checkpoint", type=str)
@@ -111,6 +145,11 @@ if __name__ == "__main__":
         with open(path) as config:
             args = common.ArgumentParser(json.load(config))
 
+    if args.defaults:
+        config = args.mode
+        default_values = getattr(defaults, config)()
+        for k, v in default_values.items():
+            setattr(args, k, v)
     if args.exp:
         if args.env == 'atari' or args.env == 'bullet':
             config = args.env

@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+import importlib
 
 
 class AbstractModel(ABC):
@@ -17,3 +18,14 @@ class AbstractModel(ABC):
     @abstractmethod
     def infer(self, x):
         pass
+
+    def set_optimizer(self, modules, optimizer, optim_args):
+        params = []
+        for module in modules:
+            params = params + list(module.parameters())
+        mod = importlib.import_module('.'.join(optimizer.split('.')[:-1]))
+        pkg = optimizer.split('.')[-1]
+        self.optimizer = getattr(mod, pkg)(
+            params,
+            **optim_args
+        )
