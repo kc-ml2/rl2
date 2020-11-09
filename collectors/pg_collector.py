@@ -1,11 +1,12 @@
 import numpy as np
 import torch
 from collections import deque
-from collectors.collector import AbstractCollector
+from collectors.collector import GeneralCollector
 
 
-class PGCollector(AbstractCollector):
+class PGCollector(GeneralCollector):
     def __init__(self, args, env, model):
+        super().__init__(args)
         self.args = args
         self.env = env
         self.model = model
@@ -18,6 +19,9 @@ class PGCollector(AbstractCollector):
         self.epinfobuf = deque(maxlen=100)
         self.reset_buffer()
 
+        # Variables for logging
+        self.frames = 0
+
     def has_next(self):
         return bool(self.remain)
 
@@ -29,9 +33,15 @@ class PGCollector(AbstractCollector):
         self.start = 0
         self.remain = len(self.buffer['advs']) // self.args.batch_size
 
-    def step_env(self):
+    def step_env(self, logger=None, info=None):
+        self.reset_buffer()
         for step in range(self.args.n_step):
-            self.collect()
+            if logger is not None and info is not None:
+                self.log(logger, info)
+
+            self.collect(info)
+            self.frames += self.args.num_workers
+
         for k, v in self.buffer.items():
             v = torch.from_numpy(np.asarray(v))
             self.buffer[k] = v.float().to(self.args.device)
@@ -52,11 +62,12 @@ class PGCollector(AbstractCollector):
         advs = self.buffer['advs'][idx]
         rets = self.buffer['vals'][idx] + advs
 
-        self.remain = 1
+        self.remain -= 1
+        self.start = end
 
         return obs, acs, nlps, advs, rets
 
-    def collect(self, **kwargs):
+    def collect(self, info=None, **kwargs):
         obs = self.obs.copy()
         if len(obs.shape) == 4:
             obs = np.transpose(obs, (0, 3, 1, 2))
@@ -82,6 +93,8 @@ class PGCollector(AbstractCollector):
         self.obs, rews, self.dones, infos = self.env.step(acs)
 
         self.dones = self.dones.astype(np.float)
+        if info is not None:
+            info.update('Values/Reward', rews.mean().item())
         self.buffer['rews'].append(rews)
         for info in infos:
             if 'episode' in info:

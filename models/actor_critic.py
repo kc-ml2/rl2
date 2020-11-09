@@ -2,10 +2,11 @@ from models.model import AbstractModel
 
 
 class ActorCriticModel(AbstractModel):
-    def __init__(self, args, encoder, actor, critic, optimizer,
+    def __init__(self, args, networks, optimizer,
                  optim_args={},
                  **kwargs):
-        self.encoder, self.actor, self.critic = encoder, actor, critic
+        assert len(networks) == 3
+        self.encoder, self.actor, self.critic = tuple(networks)
 
         self.set_optimizer([self.encoder, self.actor, self.critic],
                            optimizer,

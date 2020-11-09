@@ -31,10 +31,11 @@ class RBCollector(AbstractCollector):
 
     def step_env(self):
         for step in range(self.args.n_step):
+            if self.frames % self.args.target_update < self.args.num_workers:
+                self.model.update_target()
+
             self.collect()
             self.frames += self.args.num_workers
-            if self.frames % self.args.target_update == 0:
-                self.model.update_target()
 
         while self.buffer.curr_size < self.args.init_collect:
             self.collect()
