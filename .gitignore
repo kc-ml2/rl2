@@ -15,3 +15,4 @@ logs/
 checkpoints/
 **/assets/
 experiments/*/
+.idea
