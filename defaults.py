@@ -26,13 +26,13 @@ def bullet():
 
 def dqn():
     return dict(
-        num_workers=64,
-        batch_size=512,
+        num_workers=1,
+        batch_size=32,
         epoch=1,
         n_step=4,
         lr=2.5e-4,
-        rb_size=int(1e5),
-        init_collect=10000,
+        rb_size=int(1e6),
+        init_collect=50000,
         target_update=4000,
     )
 

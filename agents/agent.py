@@ -21,20 +21,15 @@ class GeneralAgent(AbstractAgent):
         self.collector = collector
         self.logger = Logger(self.name, args=args)
 
-        self.info = EvaluationMetrics(
-            [
-                'Time/Step',
-                'Time/Item',
-                'Loss/Total',
-                'Loss/Value',
-                'Loss/Policy',
-                'Values/Entropy',
-                'Values/Reward',
-                'Values/Value',
-                'Values/Adv',
-                'Score/Train',
-            ]
-        )
+        self.info = EvaluationMetrics([
+            'Time/Step',
+            'Time/Item',
+            'Loss/Total',
+            'Loss/Value',
+            'Values/Reward',
+            'Values/Value',
+            'Score/Train',
+        ])
 
     def loss_func(self, *args, **kwargs):
         raise NotImplementedError
@@ -45,5 +40,5 @@ class GeneralAgent(AbstractAgent):
             self.collector.reset_count()
             while self.collector.has_next():
                 data = self.collector.step()
-                loss = self.loss_func(self.info, *data)
+                loss = self.loss_func(*data, info=self.info)
                 self.model.step(loss)

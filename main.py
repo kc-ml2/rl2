@@ -86,7 +86,7 @@ def dqn(args):
     if len(input_shape) > 1:
         input_shape = (input_shape[-1], *input_shape[:-1])
     encoder = DeepMindEnc(input_shape).to(args.device)
-    q_head = ScalarHead(encoder.out_shape, 1).to(args.device)
+    q_head = ScalarHead(encoder.out_shape, env.action_space.n).to(args.device)
     networks = [encoder, q_head]
     # Declare optimizer
     optimizer = 'torch.optim.Adam'

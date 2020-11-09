@@ -1,12 +1,13 @@
 import numpy as np
 import torch
 from collections import deque
-from collectors.collector import AbstractCollector
+from collectors.collector import GeneralCollector
 from modules.replay import ReplayBuffer
 
 
-class RBCollector(AbstractCollector):
+class RBCollector(GeneralCollector):
     def __init__(self, args, env, model):
+        super().__init__(args)
         self.args = args
         self.env = env
         self.model = model
@@ -27,14 +28,16 @@ class RBCollector(AbstractCollector):
                                    s_shape=self.env.observation_space.shape)
 
     def reset_count(self):
-        pass
+        self.remain = 1
 
-    def step_env(self):
+    def step_env(self, logger=None, info=None):
         for step in range(self.args.n_step):
+            if logger is not None and info is not None:
+                self.log(logger, info)
             if self.frames % self.args.target_update < self.args.num_workers:
                 self.model.update_target()
 
-            self.collect()
+            self.collect(info)
             self.frames += self.args.num_workers
 
         while self.buffer.curr_size < self.args.init_collect:
@@ -43,13 +46,17 @@ class RBCollector(AbstractCollector):
 
     def step(self):
         samples = self.buffer.sample(self.args.batch_size)
-        obs, acs, rews, dones, obs_ = map(
+        obs, acs, rews, dones, obs_, _ = map(
             lambda x: torch.FloatTensor(x).to(self.args.device),
             samples
         )
+        if len(obs.shape) == 4:
+            obs = obs.permute(0, 3, 1, 2)
+            obs_ = obs_.permute(0, 3, 1, 2)
+        self.remain -= 1
         return obs, acs, rews, dones, obs_
 
-    def collect(self, **kwargs):
+    def collect(self, info=None, **kwargs):
         obs = self.obs.copy()
         if len(obs.shape) == 4:
             obs = np.transpose(obs, (0, 3, 1, 2))
@@ -71,6 +78,8 @@ class RBCollector(AbstractCollector):
             self.buffer.push(o, a, r, d, o_)
         self.obs = obs_
 
+        if info is not None:
+            info.update('Values/Reward', rews.mean().item())
         for info in infos:
             if 'episode' in info:
                 self.epinfobuf.append(info['episode']['score'])
