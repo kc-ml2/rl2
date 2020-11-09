@@ -98,6 +98,30 @@ def dqn(args):
     # Finally create an agent with the defined components
     train(args, 'DQNAgent', 'dqn', model, collector)
 
+def ppo(args):
+    # Create an environment
+    env = getattr(envs, args.env)(args)
+
+    # Create network components for the agent
+    input_shape = env.observation_space.shape
+    if len(input_shape) > 1:
+        input_shape = (input_shape[-1], *input_shape[:-1])
+    encoder = DeepMindEnc(input_shape).to(args.device)
+    actor = CategoricalHead(encoder.out_shape,
+                            env.action_space.n).to(args.device)
+    critic = ScalarHead(encoder.out_shape, 1).to(args.device)
+    # Declare optimizer
+    optimizer = 'torch.optim.Adam'
+
+    # Create a model using the necessary networks
+    model = models.ActorCriticModel(args, encoder, actor, critic, optimizer)
+
+    # Create a collector for managing data collection
+    collector = collectors.PGCollector(args, env, model)
+
+    # Finally create an agent with the defined components
+    train(args, 'PPOAgent', 'ppo', model, collector)
+
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(

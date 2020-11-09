@@ -3,3 +3,4 @@ sys.path.append("../")
 
 from agents.a2c import *
 from agents.dqn import *
+from agents.ppo import *
