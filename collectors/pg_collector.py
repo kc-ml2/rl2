@@ -26,6 +26,7 @@ class PGCollector(GeneralCollector):
         return bool(self.remain)
 
     def reset_buffer(self):
+        # gc collect? might memory leak
         self.start = 0
         self.buffer = {k: [] for k in self.keys}
 

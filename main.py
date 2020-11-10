@@ -18,7 +18,6 @@ from utils.distributions import CategoricalHead, ScalarHead
 
 warnings.simplefilter('ignore', UserWarning)
 
-
 def train(args, agent_name, agent_src, model, collector, train_fn=None):
     """Template function for training various agents.
     """
@@ -100,6 +99,7 @@ def dqn(args):
     # Finally create an agent with the defined components
     train(args, 'DQNAgent', 'dqn', model, collector)
 
+
 def ppo(args):
     # Create an environment
     env = getattr(envs, args.env)(args)
@@ -112,11 +112,12 @@ def ppo(args):
     actor = CategoricalHead(encoder.out_shape,
                             env.action_space.n).to(args.device)
     critic = ScalarHead(encoder.out_shape, 1).to(args.device)
+    networks = [encoder, actor, critic]
     # Declare optimizer
     optimizer = 'torch.optim.Adam'
 
     # Create a model using the necessary networks
-    model = models.ActorCriticModel(args, encoder, actor, critic, optimizer)
+    model = models.ActorCriticModel(args, networks, optimizer)
 
     # Create a collector for managing data collection
     collector = collectors.PGCollector(args, env, model)
