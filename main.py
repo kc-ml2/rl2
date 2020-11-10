@@ -63,11 +63,12 @@ def a2c(args):
     actor = CategoricalHead(encoder.out_shape,
                             env.action_space.n).to(args.device)
     critic = ScalarHead(encoder.out_shape, 1).to(args.device)
+    networks = [encoder, actor, critic]
     # Declare optimizer
     optimizer = 'torch.optim.Adam'
 
     # Create a model using the necessary networks
-    model = models.ActorCriticModel(args, encoder, actor, critic, optimizer)
+    model = models.ActorCriticModel(args, networks, optimizer)
 
     # Create a collector for managing data collection
     collector = collectors.PGCollector(args, env, model)
@@ -85,12 +86,13 @@ def dqn(args):
     if len(input_shape) > 1:
         input_shape = (input_shape[-1], *input_shape[:-1])
     encoder = DeepMindEnc(input_shape).to(args.device)
-    q_head = ScalarHead(encoder.out_shape, 1).to(args.device)
+    q_head = ScalarHead(encoder.out_shape, env.action_space.n).to(args.device)
+    networks = [encoder, q_head]
     # Declare optimizer
     optimizer = 'torch.optim.Adam'
 
     # Create a model using the necessary networks
-    model = models.QvalueModel(args, encoder, q_head, optimizer)
+    model = models.QvalueModel(args, networks, optimizer)
 
     # Create a collector for managing data collection
     collector = collectors.RBCollector(args, env, model)
