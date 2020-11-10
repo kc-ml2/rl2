@@ -32,29 +32,27 @@ def dqn():
         lr=2.5e-4,
         rb_size=int(1e6),
         init_collect=50000,
-        target_update=4000,
+        target_update=40000,
     )
 
 def ppo():
     return dict(
         num_workers=64,
         batch_size=512,
-        epoch=1,
-        n_step=4,
+        epoch=4,
+        n_step=128,
         lr=2.5e-4,
-        rb_size=int(1e5),
-        init_collect=10000,
-        target_update=4000,
+        ent_coef = 0.01,
+        vf_coef = 0.5
     )
 
 def a2c():
     return dict(
         num_workers=64,
-        batch_size=512,
+        batch_size=256,
         epoch=4,
-        n_step=128,
-        lr=2.5e-4,
+        n_step=16,
+        lr=1e-3,
         ent_coef=0.01,
         vf_coef=0.5,
-        cliprange=0.1,
     )

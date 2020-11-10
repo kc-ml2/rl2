@@ -64,7 +64,7 @@ def a2c(args):
     critic = ScalarHead(encoder.out_shape, 1).to(args.device)
     networks = [encoder, actor, critic]
     # Declare optimizer
-    optimizer = 'torch.optim.Adam'
+    optimizer = 'torch.optim.RMSprop'
 
     # Create a model using the necessary networks
     model = models.ActorCriticModel(args, networks, optimizer)
@@ -88,7 +88,7 @@ def dqn(args):
     q_head = ScalarHead(encoder.out_shape, env.action_space.n).to(args.device)
     networks = [encoder, q_head]
     # Declare optimizer
-    optimizer = 'torch.optim.Adam'
+    optimizer = 'torch.optim.RMSprop'
 
     # Create a model using the necessary networks
     model = models.QvalueModel(args, networks, optimizer)

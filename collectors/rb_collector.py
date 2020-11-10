@@ -18,7 +18,6 @@ class RBCollector(GeneralCollector):
         self.reset_buffer()
 
         self.frames = 0
-        self.eps = max(1.0 - self.frames / 1e6, 0.0) * 0.99 + 0.01
 
     def has_next(self):
         return bool(self.remain)
@@ -41,7 +40,7 @@ class RBCollector(GeneralCollector):
             self.frames += self.args.num_workers
 
         while self.buffer.curr_size < self.args.init_collect:
-            self.collect()
+            self.collect(info)
             self.frames += self.args.num_workers
 
     def step(self):
@@ -57,6 +56,8 @@ class RBCollector(GeneralCollector):
         return obs, acs, rews, dones, obs_
 
     def collect(self, info=None, **kwargs):
+        self.eps = max(1.0 - self.frames / (self.args.steps * 0.1),
+                       0.0) * 0.99 + 0.01
         obs = self.obs.copy()
         if len(obs.shape) == 4:
             obs = np.transpose(obs, (0, 3, 1, 2))
