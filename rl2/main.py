@@ -90,7 +90,7 @@ def dqn(args):
     model = models.QvalueModel(args, networks, optimizer)
 
     # Create a collector for managing data collection
-    collector = collectors.RBCollector(args, env, model)
+    collector = collectors.RBCollector(args, env, model, per=True)
 
     # Finally create an agent with the defined components
     train(args, 'DQNAgent', 'dqn', model, collector)

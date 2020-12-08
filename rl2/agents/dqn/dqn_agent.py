@@ -10,10 +10,17 @@ class DQNAgent(GeneralAgent):
     def __init__(self, args, model, collector):
         super().__init__(args, model, collector)
         self.target_net = copy.deepcopy(self.model)
-        self.criterion = nn.SmoothL1Loss()
+        self.criterion = nn.SmoothL1Loss(reduction='none')
         self.double = True
+        self.per = False
+        if hasattr(collector, 'per'):
+            self.per = getattr(collector, 'per')
 
-    def loss_func(self, obs, acs, rews, dones, obs_, info=None):
+    def loss_func(self, obs, acs, rews, dones, obs_, *args, info=None):
+        if self.per:
+            assert len(args) == 2
+            idxs = args[0]
+            deltas = args[1]
         q_dist = self.model.infer(obs)
         if len(q_dist.mean.shape) != len(acs.shape):
             acs = acs.unsqueeze(-1)
@@ -29,6 +36,13 @@ class DQNAgent(GeneralAgent):
             q_tar *= self.args.gam * (1.0 - dones.unsqueeze(-1))
             q_tar += rews.unsqueeze(-1)
         loss = self.criterion(q_val, q_tar)
+        if self.per:
+            self.collector.buffer.update_priorities(
+                idxs,
+                loss.squeeze().detach().cpu().numpy()
+            )
+            loss = loss * torch.FloatTensor(deltas).to(loss).unsqueeze(1)
+        loss = loss.mean()
 
         if info is not None:
             info.update('Loss/Total', loss.item())

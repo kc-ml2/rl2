@@ -2,11 +2,11 @@ import numpy as np
 import torch
 from collections import deque
 from .collector import GeneralCollector
-from rl2.modules import ReplayBuffer
+import rl2
 
 
 class RBCollector(GeneralCollector):
-    def __init__(self, args, env, model):
+    def __init__(self, args, env, model, per=False):
         super().__init__(args)
         self.args = args
         self.env = env
@@ -15,6 +15,7 @@ class RBCollector(GeneralCollector):
 
         self.obs = self.env.reset()
         self.epinfobuf = deque(maxlen=100)
+        self.per = per
         self.reset_buffer()
 
         self.frames = 0
@@ -23,8 +24,16 @@ class RBCollector(GeneralCollector):
         return bool(self.remain)
 
     def reset_buffer(self):
-        self.buffer = ReplayBuffer(self.args.rb_size,
-                                   s_shape=self.env.observation_space.shape)
+        if self.per:
+            self.buffer = getattr(rl2.modules, 'PrioritizedReplayBuffer')(
+                self.args.rb_size,
+                s_shape=self.env.observation_space.shape
+            )
+        else:
+            self.buffer = getattr(rl2.modules, 'ReplayBuffer')(
+                self.args.rb_size,
+                s_shape=self.env.observation_space.shape
+            )
 
     def reset_count(self):
         self.remain = 1
@@ -45,6 +54,10 @@ class RBCollector(GeneralCollector):
 
     def step(self):
         samples = self.buffer.sample(self.args.batch_size)
+        if self.per:
+            deltas = samples[1]
+            samples = samples[0]
+            idxs = samples[-1]
         obs, acs, rews, dones, obs_, _ = map(
             lambda x: torch.FloatTensor(x).to(self.args.device),
             samples
@@ -53,10 +66,13 @@ class RBCollector(GeneralCollector):
             obs = obs.permute(0, 3, 1, 2)
             obs_ = obs_.permute(0, 3, 1, 2)
         self.remain -= 1
-        return obs, acs, rews, dones, obs_
+        if self.per:
+            return obs, acs, rews, dones, obs_, idxs, deltas
+        else:
+            return obs, acs, rews, dones, obs_
 
     def collect(self, info=None, **kwargs):
-        self.eps = max(1.0 - self.frames / (self.args.steps * 0.1),
+        self.eps = max(1.0 - self.frames / (self.args.steps * 0.02),
                        0.0) * 0.99 + 0.01
         obs = self.obs.copy()
         if len(obs.shape) == 4:
