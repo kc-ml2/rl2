@@ -66,8 +66,11 @@ class ReplayBuffer:
         self.curr_idx = (self.curr_idx + 1) % self.max_size
         return self.curr_size
 
-    def sample(self, num):
-        sample_idx = np.random.randint(self.curr_size, size=num)
+    def sample(self, num, idx=None):
+        if idx is None:
+            sample_idx = np.random.randint(self.curr_size, size=num)
+        else:
+            sample_idx = idx
         samples = [self.s[sample_idx], self.a[sample_idx], self.r[sample_idx],
                    self.d[sample_idx], self.s_[sample_idx]]
         for key in self.more:
@@ -102,8 +105,8 @@ class ReplayBuffer_:
 
 
 class PrioritizedReplayBuffer(ReplayBuffer):
-    def __init__(self, capacity, alpha=0.5):
-        super().__init__(capacity)
+    def __init__(self, capacity, alpha=0.5, **kwargs):
+        super().__init__(capacity, **kwargs)
         assert alpha >= 0
         self._alpha = alpha
 
@@ -115,8 +118,8 @@ class PrioritizedReplayBuffer(ReplayBuffer):
         self._max_priority = 1.0
 
     def push(self, *args):
-        idx = self.position
         super().push(*args)
+        idx = self.ins_idx
         self._it_sum[idx] = self._max_priority ** self._alpha
         self._it_min[idx] = self._max_priority ** self._alpha
 
@@ -135,15 +138,16 @@ class PrioritizedReplayBuffer(ReplayBuffer):
         idxes = self._sample_proportional(batch_size)
         samples, weights = [], []
         p_min = self._it_min.min() / self._it_sum.sum()
-        max_weight = (p_min * len(self.memory)) ** (-beta)
+        max_weight = (p_min * self.curr_ize) ** (-beta)
 
+        samples = super().sample(idxes)
         for idx in idxes:
-            samples.append(self.memory[idx])
+            # samples.append(self.memory[idx])
             p_sample = self._it_sum[idx] / self._it_sum.sum()
             weight = (p_sample * len(self.memory)) ** (-beta)
             weights.append(weight / max_weight)
         weights = np.array(weights)
-        return samples, weights, idxes
+        return samples, weights
 
     def update_priorities(self, idxes, priorities):
         assert len(idxes) == len(priorities)
