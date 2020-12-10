@@ -21,7 +21,7 @@ class QvalueModel(AbstractModel):
 
         self.nets_target = [copy.deepcopy(net) for net in self.nets]
 
-        self.max_grad = 0.5
+        self.max_grad = 40.0
 
     @staticmethod
     def _update_param(source, target, alpha=0.0):
@@ -38,7 +38,10 @@ class QvalueModel(AbstractModel):
         return q_dist
 
     def infer(self, x):
-        return self._infer_from_list(self.nets, x)
+        ir = self.encoder(x)
+        q_dist = self.q_head(ir)
+        # return self._infer_from_list(self.nets, x)
+        return q_dist
 
     def infer_target(self, x):
         return self._infer_from_list(self.nets_target, x)
@@ -50,7 +53,7 @@ class DuelingQvalueModel(AbstractModel):
                  **kwargs):
         assert len(networks) == 3
         super().__init__(networks)
-        self.encoder, self.v_head, self.a_head = tuple(self.nets)
+        # self.encoder, self.v_head, self.a_head = tuple(self.nets)
         self.set_optimizer(self.nets, optim_args)
 
         self.nets_target = [copy.deepcopy(net) for net in self.nets]

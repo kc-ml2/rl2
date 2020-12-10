@@ -15,12 +15,15 @@ class DQNAgent(GeneralAgent):
         self.per = False
         if hasattr(collector, 'per'):
             self.per = getattr(collector, 'per')
+        self.info.set([
+            'Values/EPS',
+        ])
 
     def loss_func(self, obs, acs, rews, dones, obs_, *args, info=None):
         if self.per:
             assert len(args) == 2
             idxs = args[0]
-            deltas = args[1]
+            ws = args[1]
         q_dist = self.model.infer(obs)
         if len(q_dist.mean.shape) != len(acs.shape):
             acs = acs.unsqueeze(-1)
@@ -39,14 +42,15 @@ class DQNAgent(GeneralAgent):
         if self.per:
             self.collector.buffer.update_priorities(
                 idxs,
-                loss.squeeze().detach().cpu().numpy()
+                (q_tar - q_val).abs().detach().cpu().numpy()
             )
-            loss = loss * torch.FloatTensor(deltas).to(loss).unsqueeze(1)
+            loss = loss * torch.FloatTensor(ws).to(loss).unsqueeze(1)
         loss = loss.mean()
 
         if info is not None:
             info.update('Loss/Total', loss.item())
             info.update('Loss/Value', loss.item())
             info.update('Values/Value', q_val.mean().item())
+            info.update('Values/EPS', self.collector.eps)
 
         return loss

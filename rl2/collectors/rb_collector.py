@@ -55,7 +55,7 @@ class RBCollector(GeneralCollector):
     def step(self):
         samples = self.buffer.sample(self.args.batch_size)
         if self.per:
-            deltas = samples[1]
+            ws = samples[1]
             samples = samples[0]
             idxs = samples[-1]
         obs, acs, rews, dones, obs_, _ = map(
@@ -67,7 +67,7 @@ class RBCollector(GeneralCollector):
             obs_ = obs_.permute(0, 3, 1, 2)
         self.remain -= 1
         if self.per:
-            return obs, acs, rews, dones, obs_, idxs, deltas
+            return obs, acs, rews, dones, obs_, idxs, ws
         else:
             return obs, acs, rews, dones, obs_
 

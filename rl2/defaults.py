@@ -10,6 +10,7 @@ def atari():
         cliprange=0.1,
     )
 
+
 def bullet():
     return dict(
         num_workers=64,
@@ -29,11 +30,12 @@ def dqn():
         batch_size=32,
         epoch=1,
         n_step=4,
-        lr=2.5e-4,
+        lr=6.25e-5,
         rb_size=int(1e6),
-        init_collect=50000,
-        target_update=40000,
+        init_collect=20000,
+        target_update=8000,
     )
+
 
 def ppo():
     return dict(
@@ -42,9 +44,10 @@ def ppo():
         epoch=4,
         n_step=128,
         lr=2.5e-4,
-        ent_coef = 0.01,
-        vf_coef = 0.5
+        ent_coef=0.01,
+        vf_coef=0.5
     )
+
 
 def a2c():
     return dict(

@@ -84,7 +84,7 @@ def dqn(args):
     q_head = ScalarHead(encoder.out_shape, env.action_space.n).to(args.device)
     networks = [encoder, q_head]
     # Declare optimizer
-    optimizer = 'torch.optim.RMSprop'
+    optimizer = 'torch.optim.Adam'
 
     # Create a model using the necessary networks
     model = models.QvalueModel(args, networks, optimizer)

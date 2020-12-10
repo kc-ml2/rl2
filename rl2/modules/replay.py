@@ -51,6 +51,10 @@ class ReplayBuffer:
     # @_ordered
     def push(self, s, a, r, d, s_, *args, **kwargs):
         self.curr_size = min(self.curr_size + 1, self.max_size)
+        # if self.curr_idx >= self.max_size:
+        #     self.ins_idx = np.random.randint(self.max_size)
+        # else:
+        #     self.ins_idx = self.curr_idx
         self.ins_idx = self.curr_idx
 
         self.s[self.ins_idx] = s
@@ -64,6 +68,8 @@ class ReplayBuffer:
                 getattr(self, key)[self.ins_idx] = kwargs[key]
 
         self.curr_idx = (self.curr_idx + 1) % self.max_size
+        # if self.curr_idx < self.max_size:
+        #     self.curr_idx += 1
         return self.curr_size
 
     def sample(self, num, idx=None):
