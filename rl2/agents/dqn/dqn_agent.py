@@ -42,7 +42,7 @@ class DQNAgent(GeneralAgent):
         if self.per:
             self.collector.buffer.update_priorities(
                 idxs,
-                (q_tar - q_val).abs().detach().cpu().numpy()
+                (q_tar - q_val + 1e-8).abs().detach().cpu().numpy()
             )
             loss = loss * torch.FloatTensor(ws).to(loss).unsqueeze(1)
         loss = loss.mean()

@@ -90,7 +90,32 @@ def dqn(args):
     model = models.QvalueModel(args, networks, optimizer)
 
     # Create a collector for managing data collection
-    collector = collectors.RBCollector(args, env, model, per=True)
+    collector = collectors.RBCollector(args, env, model, per=False)
+
+    # Finally create an agent with the defined components
+    train(args, 'DQNAgent', 'dqn', model, collector)
+
+
+def duelingdqn(args):
+    # Create an environment
+    env = getattr(envs, args.env)(args)
+
+    # Create network components for the agent
+    input_shape = env.observation_space.shape
+    if len(input_shape) > 1:
+        input_shape = (input_shape[-1], *input_shape[:-1])
+    encoder = DeepMindEnc(input_shape).to(args.device)
+    v_head = ScalarHead(encoder.out_shape, 1).to(args.device)
+    a_head = ScalarHead(encoder.out_shape, env.action_space.n).to(args.device)
+    networks = [encoder, v_head, a_head]
+    # Declare optimizer
+    optimizer = 'torch.optim.Adam'
+
+    # Create a model using the necessary networks
+    model = models.DuelingQvalueModel(args, networks, optimizer)
+
+    # Create a collector for managing data collection
+    collector = collectors.RBCollector(args, env, model, per=False)
 
     # Finally create an agent with the defined components
     train(args, 'DQNAgent', 'dqn', model, collector)
