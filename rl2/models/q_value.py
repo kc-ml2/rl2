@@ -17,20 +17,15 @@ class QvalueModel(AbstractModel):
         # assert len(networks) == 2
         super().__init__(networks)
         # self.encoder, self.q_head = tuple(self.nets)
-        self.set_optimizer(self.nets, optimizer, optim_args)
+        self.optimizer = self.set_optimizer(self.nets, optimizer, optim_args)
 
         self.nets_target = [copy.deepcopy(net) for net in self.nets]
 
         self.max_grad = 10.0
 
-    @staticmethod
-    def _update_param(source, target, alpha=0.0):
-        for p, p_t in zip(source.parameters(), target.parameters()):
-            p_t.data.copy_(alpha * p_t.data + (1 - alpha) * p.data)
-
     def update_target(self):
         for source, target in zip(self.nets, self.nets_target):
-            self._update_param(source, target)
+            self._copy_param(source, target)
 
     def _infer_from_list(self, list_of_mods, x):
         ir = list_of_mods[0](x)

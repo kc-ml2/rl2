@@ -9,7 +9,7 @@ import torch
 import rl2.utils.common as common
 
 from rl2 import collectors, envs, models, settings, defaults
-from rl2.modules import DeepMindEnc
+from rl2.modules import DeepMindEnc, MLP
 from rl2.utils.distributions import CategoricalHead, ScalarHead
 
 warnings.simplefilter('ignore', UserWarning)
@@ -142,6 +142,34 @@ def ppo(args):
 
     # Create a collector for managing data collection
     collector = collectors.PGCollector(args, env, model)
+
+    # Finally create an agent with the defined components
+    train(args, 'PPOAgent', 'ppo', model, collector)
+
+
+def ddpg(args):
+    # Create an environment
+    env = getattr(envs, args.env)(args)
+
+    # Create network components for the agent
+    input_shape = env.observation_space.shape
+    action_dim = len(env.action_space.sample())
+    encode_dim = 128
+    if len(input_shape) > 1:
+        input_shape = (input_shape[-1], *input_shape[:-1])
+    encoder = MLP(input_shape, encode_dim).to(args.device)
+    actor = ScalarHead(encoder.out_shape, 1).to(args.device)
+    encoder2 = MLP(input_shape + action_dim, encode_dim).to(args.device)
+    critic = ScalarHead(encoder.out_shape, 1).to(args.device)
+    networks = [encoder, actor, critic]
+    # Declare optimizer
+    optimizer = 'torch.optim.Adam'
+
+    # Create a model using the necessary networks
+    model = models.ActorCriticModel(args, networks, optimizer)
+
+    # Create a collector for managing data collection
+    collector = collectors.RBCollector(args, env, model, per=False)
 
     # Finally create an agent with the defined components
     train(args, 'PPOAgent', 'ppo', model, collector)

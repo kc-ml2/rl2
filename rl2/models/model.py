@@ -16,6 +16,10 @@ class AbstractModel(ABC):
         for net in self.nets:
             self._init_params(net)
 
+    @abstractmethod
+    def infer(self, x):
+        pass
+
     @staticmethod
     def _init_params(net, val=np.sqrt(2)):
         for p in net.modules():
@@ -27,6 +31,24 @@ class AbstractModel(ABC):
                 if p.bias is not None:
                     p.bias.data.zero_()
 
+    @staticmethod
+    def _copy_param(source, target, alpha=0.0):
+        for p, p_t in zip(source.parameters(), target.parameters()):
+            p_t.data.copy_(alpha * p_t.data + (1 - alpha) * p.data)
+
+    @staticmethod
+    def set_optimizer(modules, optimizer, optim_args):
+        params = []
+        for module in modules:
+            params = params + list(module.parameters())
+        mod = importlib.import_module('.'.join(optimizer.split('.')[:-1]))
+        pkg = optimizer.split('.')[-1]
+        optimizer = getattr(mod, pkg)(
+            params,
+            **optim_args
+        )
+        return optimizer
+
     def step(self, loss):
         self.optimizer.zero_grad()
         loss.backward()
@@ -37,18 +59,3 @@ class AbstractModel(ABC):
                     self.max_grad
                 )
         self.optimizer.step()
-
-    @abstractmethod
-    def infer(self, x):
-        pass
-
-    def set_optimizer(self, modules, optimizer, optim_args):
-        params = []
-        for module in modules:
-            params = params + list(module.parameters())
-        mod = importlib.import_module('.'.join(optimizer.split('.')[:-1]))
-        pkg = optimizer.split('.')[-1]
-        self.optimizer = getattr(mod, pkg)(
-            params,
-            **optim_args
-        )

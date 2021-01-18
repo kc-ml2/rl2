@@ -33,7 +33,7 @@ def dqn():
         lr=1.0e-4,
         rb_size=int(1e6),
         init_collect=20000,
-        target_update=20000,
+        target_update=40000,
     )
 
 

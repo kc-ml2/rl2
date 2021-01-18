@@ -9,9 +9,11 @@ class ActorCriticModel(AbstractModel):
         super().__init__(networks)
         self.encoder, self.actor, self.critic = tuple(self.nets)
 
-        self.set_optimizer([self.encoder, self.actor, self.critic],
-                           optimizer,
-                           optim_args)
+        self.optimizer = self.set_optimizer(
+            [self.encoder, self.actor, self.critic],
+            optimizer,
+            optim_args
+        )
 
         self.max_grad = 0.5
 
