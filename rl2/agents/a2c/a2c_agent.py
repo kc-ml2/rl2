@@ -1,4 +1,4 @@
-from ..agent import GeneralAgent
+from rl2.agent import GeneralAgent
 
 
 class A2CAgent(GeneralAgent):

@@ -1,7 +1,7 @@
 import numpy as np
 import torch
 from collections import deque
-from .collector import GeneralCollector
+from rl.collectors.collector import GeneralCollector
 
 
 class PGCollector(GeneralCollector):

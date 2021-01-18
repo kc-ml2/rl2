@@ -7,7 +7,7 @@ from baselines.common.atari_wrappers import FireResetEnv
 from baselines.common.atari_wrappers import ClipRewardEnv
 from baselines.common.atari_wrappers import WarpFrame
 from baselines.common.atari_wrappers import FrameStack
-from .monitor import Monitor
+from rl2.gym.monitor import Monitor
 from rl2.envs.gym.vec_env import SubprocVecEnv, DummyVecEnv
 
 __all__ = ['atari', 'atari_explore']
