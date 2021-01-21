@@ -15,3 +15,9 @@ Sample command for running a model on atari breakout
 ```
 python main.py --mode=ppo --env=atari --env_id=Breakout --tag=test_run
 ```
+You can mannually specify your device by
+```
+python main.py --device cpu --mode=ppo --env=atari --env_id=Breakout --tag=test_run
+python main.py --device gpu --mode=ppo --env=atari --env_id=Breakout --tag=test_run
+python main.py --gpu_id 1 --mode=ppo --env=atari --env_id=Breakout --tag=test_run
+```

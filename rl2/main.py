@@ -181,6 +181,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(
         description="ML2 Reinforcement Learning Library"
     )
+    devices = ['cpu', 'gpu']
+    
+    
+    parser.add_argument("--device", type=str, default=None, choices=devices)
+    parser.add_argument("--gpu_id", type=int, default=None)
     parser.add_argument("--load_config", type=str)
     parser.add_argument("--tag", type=str)
     parser.add_argument("--mode", type=str, default='test')
@@ -256,7 +261,15 @@ if __name__ == "__main__":
 
     args.steps = int(args.steps)
     args.log_step = int(args.log_step)
-    if not hasattr(args, 'device'):
+    
+    if args.device is None:
         args.device = 'cuda' if torch.cuda.is_available() else 'cpu'
-
+    elif args.device == 'gpu':
+        assert torch.cuda.is_available(), "No cuda device available"
+        args.device = 'cuda'
+        
+    if args.gpu_id is not None:
+        assert torch.cuda.is_available(), "No cuda device available"
+        args.device = 'cuda:' + str(getattr(args, 'gpu_id'))
+        
     globals()[args.mode](args)
