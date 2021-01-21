@@ -14,6 +14,7 @@ from rl2.utils.distributions import CategoricalHead, ScalarHead
 
 warnings.simplefilter('ignore', UserWarning)
 
+
 def train(args, agent_name, agent_src, model, collector, train_fn=None):
     """Template function for training various agents.
     """
@@ -52,6 +53,7 @@ def a2c(args):
 
     # Create network components for the agent
     input_shape = env.observation_space.shape
+
     if len(input_shape) > 1:
         input_shape = (input_shape[-1], *input_shape[:-1])
     encoder = DeepMindEnc(input_shape).to(args.device)
