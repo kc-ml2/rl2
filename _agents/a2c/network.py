@@ -2,8 +2,9 @@ import numpy as np
 import torch
 import torch.nn as nn
 # import torch.nn.functional as F
-from rl2.modules import DeepMindEnc
-from rl2.utils.distributions import CategoricalHead, DiagGaussianHead, ScalarHead
+from _rl2.modules import DeepMindEnc
+from _rl2.utils.distributions import CategoricalHead, DiagGaussianHead, ScalarHead
+
 
 class ActorCritic(nn.Module):
     def __init__(self, input_shape, n_actions, disc=True, sep=False,

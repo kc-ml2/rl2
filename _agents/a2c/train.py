@@ -5,11 +5,11 @@ import numpy as np
 import torch
 import torch.nn as nn
 import gym
-from rl2.agents import ActorCritic
-from rl2 import envs, settings
-from rl2.utils.logger import Logger
-from rl2.utils.summary import EvaluationMetrics
-from rl2.utils.common import load_model, safemean
+from _rl2.agents import ActorCritic
+from _rl2 import envs, settings
+from _rl2.utils.logger import Logger
+from _rl2.utils.summary import EvaluationMetrics
+from _rl2.utils.common import load_model, safemean
 
 __all__ = ['A2CAgent']
 

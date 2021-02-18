@@ -1,6 +1,6 @@
 import torch
-from rl2 import settings
-from rl2.agents import A2CAgent
+from _rl2 import settings
+from _rl2.agents import A2CAgent
 
 
 __all__ = ['PPOAgent']

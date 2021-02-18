@@ -10,8 +10,6 @@ setup(
         'tensorboardX',
         'matplotlib',
         'pillow',
-        'gym',
-        'gym[atari]',
         'sklearn',
         'psutil',
         'mpi4py'
