@@ -16,3 +16,4 @@ checkpoints/
 **/assets/
 experiments/*/
 .idea
+.DS_Store
