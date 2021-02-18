@@ -2,6 +2,14 @@ from rl2.agents.base import Agent
 
 
 class RolloutWorker:
+    """
+    workers mimics the intuitive loop btw agent and env
+
+    if worker is to serve as some entrypoint for an app,
+    worker might need context so everything is under control of workers
+
+    rl2's base unit is a step(1 interaction per se)
+    """
     def __init__(
             self,
             env,
@@ -46,6 +54,9 @@ class RolloutWorker:
 
 
 class MaxStepWorker(RolloutWorker):
+    """
+    do rollout until max steps given
+    """
     def __init__(self, env, agent, max_steps, **kwargs):
         super().__init__(env, agent, **kwargs)
         self.max_steps = max_steps
@@ -61,6 +72,11 @@ class MaxStepWorker(RolloutWorker):
 
 
 class EpisodicWorker(RolloutWorker):
+    """
+    do rollout until max episodes given
+    might be useful at inference time or when training episodically
+    """
+
     def __init__(self, env, agent, num_episodes=1, **kwargs):
         super().__init__(env, agent, **kwargs)
         self.num_episodes = num_episodes

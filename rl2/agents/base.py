@@ -8,8 +8,10 @@ from rl2.models.torch.base import TorchModel
 
 class Agent:
     """
-    interface
-    agent manages
+    interface.
+    agent has buffer
+    even pg algorhtms use buffer(not the true experience replay buffer but it triggers train when buffer is full)
+    agent counts interactions and do what it needs to do when it needs to be done
     """
     def __init__(
             self,
@@ -37,12 +39,21 @@ class Agent:
 
         self.buffer = buffer_cls(**buffer_kwargs)
 
-    def act(self):
+    def act(self) -> Action:
+        """
+        act returns its running env's action space shaped/typed action
+        """
         raise NotImplementedError
 
-    def collect(self):
+    def collect(self) -> Maybe Some statistics?:
+        """
+        collects state and store in buffer
+        """
         raise NotImplementedError
 
-    def train(self):
+    def train(self) -> Maybe Train Result?:
+        """
+        train it's model by calling model.step num_epochs times
+        """
         raise NotImplementedError
 
