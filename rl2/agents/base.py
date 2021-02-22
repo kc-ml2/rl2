@@ -54,19 +54,19 @@ class Agent:
         # self._hook.add_endpoint(endpoint='/act', handler=self.act)
 
 
-    def act(self) -> Action:
+    def act(self) -> 'Action':
         """
         act returns its running env's action space shaped/typed action
         """
         raise NotImplementedError
 
-    def collect(self) -> Maybe Some statistics?:
+    def collect(self) -> 'Maybe Some statistics?':
         """
         collects state and store in buffer
         """
         raise NotImplementedError
 
-    def train(self) -> Maybe Train Result?:
+    def train(self) -> 'Maybe Train Result?':
         """
         train it's model by calling model.step num_epochs times
         """
