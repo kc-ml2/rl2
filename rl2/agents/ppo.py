@@ -1,7 +1,7 @@
 import torch
 
 from rl2.agents.base import Agent
-from rl2.algos.configs import DEFAULT_PPO_CONFIG
+from rl2.agents.configs import DEFAULT_PPO_CONFIG
 from rl2.networks.torch.distributional import CategoricalHead, ScalarHead
 from rl2.models.torch.actor_critic import ActorCriticModel
 from rl2.networks.torch.networks import DeepMindEnc

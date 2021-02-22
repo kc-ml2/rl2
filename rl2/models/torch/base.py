@@ -17,7 +17,7 @@ but interface itself can serve as vanilla algorithm
 class TorchModel(nn.Module):
     """
     input : state
-    output : torch.distribution.Distribution(outputs ScalarDist if scalar output)
+    output : torch.distributions.Distribution(outputs ScalarDist if scalar output)
 
     this class encapsulates all neural net models + other models(e.g. decision tree) of an algorithm
     inherits nn.Module to utilize its functionalities, e.g. model.state_dict()
@@ -93,7 +93,7 @@ class TorchModel(nn.Module):
         return optimizer
 
 
-class PolicyGradientModel(TorchModel):
+class PolicyBasedModel(TorchModel):
     """
     interface for PG models.
     must implement abstractmethods to inherit this class.
@@ -137,7 +137,7 @@ class PolicyGradientModel(TorchModel):
         pass
 
 
-class QLearningModel(TorchModel):
+class ValueBasedModel(TorchModel):
     """
     interface for Q learning models.
     Q learning models always have addtional target network

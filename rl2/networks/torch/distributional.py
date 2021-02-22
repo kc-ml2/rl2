@@ -1,11 +1,11 @@
 import torch
 from torch import nn
 
-from rl2.distributions import ScalarDist, SampleDist, CategoricalDist, DiagGaussianDist, MixtureGaussianDist
+from rl2.distributions.torch.distributions import ScalarDist, SampleDist, CategoricalDist, DiagGaussianDist, MixtureGaussianDist
 import torch.nn.functional as F
 
 """
-some neural net components that outputs distribution
+some neural net components that outputs distributions
 """
 
 

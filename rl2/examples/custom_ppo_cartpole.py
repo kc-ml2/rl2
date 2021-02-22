@@ -3,15 +3,15 @@ import gym
 import torch
 from torch import nn
 
-from rl2.algos.ppo import PPOAgent
+from rl2.agents.ppo import PPOAgent
 from rl2.models.torch.actor_critic import ActorCriticModel
 from rl2.workers.base import MaxStepWorker
 
 """
 you might want to modify 
 1. layer architecture -> just pass nn.Module to predefined models
-2. which distribution to use -> implement model from interfaces e.g. implement ActorCritic for custom PPO
-3. how to sample distribution -> customize Agent
+2. which distributions to use -> implement model from interfaces e.g. implement ActorCritic for custom PPO
+3. how to sample distributions -> customize Agent
 etc...
 
 below example just changes 1. and some hparams

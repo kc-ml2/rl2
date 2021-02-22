@@ -31,7 +31,7 @@ class ActorCriticModel(PolicyGradientModel):
         """
         for training
         :param x:
-        :return: distribution
+        :return: distributions
         """
         ir = self.encoder(x)
         ac_dist = self.actor(ir)
@@ -42,7 +42,7 @@ class ActorCriticModel(PolicyGradientModel):
     @abstractmethod
     def infer(self, x):
         """
-        :return: distribution
+        :return: distributions
         """
         ir = self.encoder(x)
         ac_dist = self.actor(ir)

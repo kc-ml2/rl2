@@ -38,6 +38,21 @@ class Agent:
         self.device = device
 
         self.buffer = buffer_cls(**buffer_kwargs)
+        self._hook = None
+
+    @property
+    def hook(self):
+        if self._hook is None:
+            raise AttributeError('hook is not set')
+        return self._hook
+
+    @hook.setter
+    def hook(self, val):
+        self._hook = val
+        self._hook.agent = self
+        print(f'from now, {self._hook}')
+        # self._hook.add_endpoint(endpoint='/act', handler=self.act)
+
 
     def act(self) -> Action:
         """
