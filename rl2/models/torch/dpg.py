@@ -1,9 +1,9 @@
 from torch.distributions import Distribution
 
-from rl2.models.torch.base import QLearningModel
+from rl2.models.torch.base import PolicyBasedModel
 
 
-class DPGModel(QLearningModel):
+class DPGModel(PolicyBasedModel):
     def __init__(self, input_shape, **kwargs):
         pass
 

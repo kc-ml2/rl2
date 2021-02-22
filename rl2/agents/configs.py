@@ -38,3 +38,13 @@ DEFAULT_A2C_CONFIG = {
     'vf_coef': 0.5,
     'ent_coef': 0.01,
 }
+
+DEFAULT_DDPG_CONFIG = {
+    'num_workers': 64,
+    'batch_size': 256,
+    'num_epochs': 4,
+    'update_interval': 16,
+    'lr': 1e-3,
+    'vf_coef': 0.5,
+    'ent_coef': 0.01,
+}
