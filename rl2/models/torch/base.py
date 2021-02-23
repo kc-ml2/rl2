@@ -1,4 +1,5 @@
 import importlib
+from typing import Any, T_co
 from abc import abstractmethod
 
 import numpy as np
@@ -27,7 +28,7 @@ class TorchModel(nn.Module):
     def __init__(
             self,
             input_shape: tuple,
-            save_dir: str,
+            save_dir: str = None,
             device: str = None,
     ):
         super().__init__()
@@ -108,17 +109,13 @@ class PolicyBasedModel(TorchModel):
     def __init__(self, input_shape, **kwargs):
         super().__init__(input_shape, **kwargs)
 
-
     def forward(self, *input: Any, **kwargs: Any) -> T_co:
-        
 
         ac_dist = self.actor(obs)
         action = ac_dist.sample()
         val_dist = self.critic(obs, action)
 
         return ac_dist, val_dist
-
-    action = ac_dist.sample()
 
     @abstractmethod
     def infer(self) -> Distribution:
@@ -136,7 +133,7 @@ class PolicyBasedModel(TorchModel):
         TODO:
         implement vanila pg step
         """
-        
+
         pass
 
     @abstractmethod

@@ -44,7 +44,6 @@ DEFAULT_DDPG_CONFIG = {
     'batch_size': 256,
     'num_epochs': 4,
     'update_interval': 16,
-    'lr': 1e-3,
-    'vf_coef': 0.5,
-    'ent_coef': 0.01,
+    'lr_ac': 1e-3,
+    'lr_cr': 1e-4
 }

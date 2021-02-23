@@ -10,6 +10,7 @@ class RolloutWorker:
 
     rl2's base unit is a step(1 interaction per se)
     """
+
     def __init__(
             self,
             env,
@@ -24,6 +25,7 @@ class RolloutWorker:
         self.render = render
         # self.render_mode = render_mode
         self.num_episodes = 0
+        self.num_steps = 0
 
         self.obs = env.reset()
 
@@ -47,8 +49,12 @@ class RolloutWorker:
             if self.render:
                 # how to deal with render mode?
                 self.env.render()
-
+        self.num_steps += 1
+        if done:  # do sth about ven env
+            self.num_episodes += 1
+        # Update next obs
         self.obs = obs
+        results = None
 
         return done, info, results
 
@@ -57,6 +63,7 @@ class MaxStepWorker(RolloutWorker):
     """
     do rollout until max steps given
     """
+
     def __init__(self, env, agent, max_steps, **kwargs):
         super().__init__(env, agent, **kwargs)
         self.max_steps = max_steps
@@ -85,6 +92,6 @@ class EpisodicWorker(RolloutWorker):
         for episode in range(self.num_episodes):
             done = False
             while not done:
-                done, info = self.rollout()
+                done, info, _ = self.rollout()
 
             # TODO: when done do sth like logging

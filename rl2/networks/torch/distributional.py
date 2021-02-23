@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 
-from rl2.distributions.torch.distributions import ScalarDist, SampleDist, CategoricalDist, DiagGaussianDist, MixtureGaussianDist
+# from rl2.distributions.torch.distributions import ScalarDist, SampleDist, CategoricalDist, DiagGaussianDist, MixtureGaussianDist
 import torch.nn.functional as F
 
 """
@@ -14,7 +14,7 @@ class ScalarHead(nn.Module):
         super().__init__()
         self.linear = nn.Linear(input_size, out_size)
 
-    def forward(self, x) -> torch.distrib:
+    def forward(self, x) -> "torch.distrib":
         x = self.linear(x)
         dist = ScalarDist(x)
         return dist
