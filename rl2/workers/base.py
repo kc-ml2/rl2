@@ -52,6 +52,7 @@ class RolloutWorker:
         self.num_steps += 1
         if done:  # do sth about ven env
             self.num_episodes += 1
+            obs = self.env.reset()
         # Update next obs
         self.obs = obs
         results = None
@@ -92,6 +93,6 @@ class EpisodicWorker(RolloutWorker):
         for episode in range(self.num_episodes):
             done = False
             while not done:
-                done, info, _ = self.rollout()
+                done, info, results = self.rollout()
 
             # TODO: when done do sth like logging

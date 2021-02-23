@@ -60,7 +60,7 @@ class Agent:
         """
         raise NotImplementedError
 
-    def collect(self) -> 'Maybe Some statistics?':
+    def collect(self, s, a, r, d, s_) -> 'Maybe Some statistics?':
         """
         collects state and store in buffer
         """
