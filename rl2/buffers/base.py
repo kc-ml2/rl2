@@ -27,7 +27,8 @@ class ReplayBuffer:
 
     def __setattr__(self, key, value):
         if self.max_size != len(value):
-            raise ValueError(f'buffer max size != {key} length, {self.max_size} != {len(value)}')
+            raise ValueError(
+                f'buffer max size != {key} length, {self.max_size} != {len(value)}')
 
     def to_dict(self):
         d = {
@@ -107,7 +108,7 @@ class ReplayBuffer:
         #     self.curr_idx += 1
         # return self.curr_size
 
-    def sample(self, num, idx=None):
+    def sample(self, num, idx=None) -> List[ReplayBuffer]:
         if idx is None:
             sample_idx = np.random.randint(self.curr_size, size=num)
         else:

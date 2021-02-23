@@ -18,18 +18,25 @@ from rl2.networks.torch.distributional import ScalarHead
 
 # from rl2.utils import noise
 
-# TODO implement loss func
+# TODO: implement loss func
 
 
 def loss_func_ac(self, data: 'batch'):
-    o = data['obs']
-    a = self.model.infer()
-    _, val_dist = self.model.infer(o, a)
+    losses = []
+    s, a, r, d, s_ = data['obs']
+    a_trg = self.agent.mu_trg(s)
+    backup = r + gamma * self.agent.q_trg(s, a_trg)
+    loss = (backup - self.q(s, a)) ** 2
+    loss = loss.mean()
+
+    val_dist = self.agent.q_trg(o, a)
     q = val_dist.mean()
 
 
 def loss_func_cr(self, data: 'batch'):
-    o = data['obs']
+    obs = data['obs']
+    act = data['act']
+    trg = rew + gamma*self.mu_trg(obs, act)
     q = self.model.infer(o, a)
     self.critic()
 
@@ -59,8 +66,8 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
 
     def __init__(self,
                  input_shape,
-                 enc_dim=None,
-                 action_dim=None,
+                 enc_dim,
+                 action_dim,
                  enc_ac: torch.nn.Module = None,
                  enc_cr: torch.nn.Module = None,
                  optim_ac: str = None,
@@ -70,7 +77,8 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
         super().__init__(input_shape, **kwargs)
         # config = kwargs['config']
         if enc_ac is None:
-            self.encoder_ac = MLP(in_shape=input_shape, out_shape=enc_dim)
+            self.encoder_ac = MLP(in_shape=input_shape,
+                                  out_shape=enc_dim)
         if enc_cr is None:
             self.encoder_cr = MLP(in_shape=(input_shape + action_dim),
                                   out_shape=enc_dim)
@@ -96,7 +104,6 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
             modules=self.mu, optim_name=optim_ac, **kwargs.optim_kwargs_ac)
         self.optim_cr = self.get_optimizer_by_name(
             modules=self.q, optim_name=optim_cr, **kwargs.optim_kwargs_cr)
-        pass
 
     def act(self, obs: np.array) -> np.array:
         ac_dist = self.mu(obs)
@@ -122,13 +129,14 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
         loss_ac, loss_cr = loss
         self.optim_ac.zero_grad()
         loss_ac.backward(retain_graph=True)
-        self.optim_acoptim_ac.step()
+        self.optim_ac.step()
 
         self.optim_cr.zero_grad()
         loss_cr.backward()
         self.optim_cr.step()
 
-        pass
+        # TODO: Implement polyak step update
+        raise NotImplementedError
 
     def save(self):
         # torch.save(os.path.join(save_dir, 'encoder_ac.pt'))
@@ -152,24 +160,30 @@ class DDPGAgent(Agent):
     def act(self, obs: np.array) -> np.array:
         act = self.model.act(obs)
         if self.explore:
-            act += self.noise: np.ndarray
+            act: np.array += self.noise
+
         return act
 
     def step(self):
         if self.curr_step % self.update_interval == 0:
             loss: List[Any] = self.compute_loss(batch)
-            self.compute()
+            self.model.step(loss)
             raise NotImplementedError
 
     def train(self):
         trg_mu = copy.deepcopy(self.model.mu)
         trg_q = copy.deepcopy(self.model.q)
-        noise = noise()
+        for p_mu, p_q in zip(trg_mu.parameters(), trg_q.parameters():
+            p_mu.requires_grad=False
+            p_q.requires_grad=False
+
+        noise=Noise()
 
         for i_epoch in range(self.num_epochs):
-            data = self.buffer.sample()
-            loss = self.loss_func(data)
+            data=self.buffer.sample()
+            loss=self.loss_func(data)
             self.model.step(loss)
+
 
     def collect(self, s, a, r, d, s_):
         self.curr_step += 1
@@ -177,5 +191,5 @@ class DDPGAgent(Agent):
 
 
 if __name__ == "__main__":
-    m = DDPGAgent(input_shape=5, enc_dim=128)
+    m=DDPGAgent(input_shape=5, enc_dim=128)
     m.mu
