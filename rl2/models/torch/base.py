@@ -30,12 +30,16 @@ class TorchModel(nn.Module):
             save_dir: str,
             device: str = None,
     ):
+        super().__init__()
         self.input_shape = input_shape
         self.save_dir = save_dir
 
         available_device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.device = device if device else available_device
         # self.summary_writer = SummaryWriter(log_dir=save_dir)
+
+    def forward(self, *args, **kwargs):
+        raise NotImplementedError
 
     @abstractmethod
     def infer(self, state) -> Distribution:
