@@ -67,7 +67,7 @@ class MaxStepWorker(RolloutWorker):
 
     def __init__(self, env, agent, max_steps, **kwargs):
         super().__init__(env, agent, **kwargs)
-        self.max_steps = max_steps
+        self.max_steps = int(max_steps)
 
     def run(self):
         for step in range(self.max_steps):

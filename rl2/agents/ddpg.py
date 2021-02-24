@@ -1,7 +1,10 @@
-from typing import Any, List, OrderedDict
+# from marlenv.marlenv.envs.utils import observation_space
+# from marlenv.marlenv.envs.utils import action_space
+from typing import Any, List, OrderedDict, Callable
 import torch
 import numpy as np
 from torch import nn
+from torch import optim
 import torch.nn.functional as F
 from importlib import import_module
 from rl2.models.torch.base import PolicyBasedModel, TorchModel, ValueBasedModel
@@ -18,16 +21,17 @@ from rl2.networks.torch.networks import MLP
 from rl2.networks.torch.distributional import ScalarHead
 # from rl2.loss import DDPGloss
 
-from rl2.utils import Noise
+# from rl2.utils import Noise
 
 # TODO: Implement Noise
 
 
 class Noise():
-    def __init__(self) -> None:
+    def __init__(self, action_shape):
+        self.action_shape = action_shape
 
     def __call__(self) -> np.array:
-
+        return np.random.randn(self.action_shape)
         # TODO: implement loss func
 
 
@@ -75,35 +79,36 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
             self.encoder_ac = MLP(in_shape=input_shape,
                                   out_shape=enc_dim)
         if enc_cr is None:
-            self.encoder_cr = MLP(in_shape=(input_shape + action_dim),
+            # FIXME: Acition_dim management
+            self.encoder_cr = MLP(in_shape=(input_shape + action_dim[0]),
                                   out_shape=enc_dim)
 
         self.actor = ScalarHead(
-            input_size=self.encoder_ac.out_shape,
+            input_size=enc_dim,
             out_size=1)
         self.critic = ScalarHead(
-            input_size=self.encoder_cr.out_shape,
+            input_size=enc_dim,
             out_size=1)
 
-        self.mu = nn.Sequential(OrderedDict([
-            ('enc_ac', self.encoder_ac),
-            ('ac', self.actor)
-        ]))
+        self.mu = nn.Sequential(
+            self.encoder_ac,
+            self.actor
+        )
 
-        self.q = nn.Sequential(OrderedDict([
-            ('enc_cr', self.encoder_cr),
-            ('cr', self.critic)
-        ]))
+        self.q = nn.Sequential(
+            self.encoder_cr,
+            self.critic
+        )
 
         if optim_ac is None:
-            self.optim_ac = torch.optim.Adam(self.mu.parameters())
+            self.optim_ac = "torch.optim.Adam"
         if optim_cr is None:
-            self.optim_cr = torch.optim.Adam(self.q.parameters())
+            self.optim_cr = "torch.optim.Adam"
 
         self.optim_ac = self.get_optimizer_by_name(
-            modules=self.mu, optim_name=optim_ac, **kwargs.optim_kwargs_ac)
+            modules=self.mu, optim_name=self.optim_ac)
         self.optim_cr = self.get_optimizer_by_name(
-            modules=self.q, optim_name=optim_cr, **kwargs.optim_kwargs_cr)
+            modules=self.q, optim_name=self.optim_cr)  # , optim_kwargs=kwargs['optim_kwargs_cr'])
 
         self.mu_trg = copy.deepcopy(self.mu)
         self.q_trg = copy.deepcopy(self.q)
@@ -143,9 +148,9 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
         loss_cr.backward()
         self.optim_cr.step()
 
-    def update_trg(self):
-        polyak_update(self.mu, self.mu_trg, tau=self.tau)
-        polyak_update(self.q, self.q_trg, tau=self.tau)
+    # def update_trg(self):
+    #     polyak_update(self.mu, self.mu_trg, tau=self.tau)
+    #     polyak_update(self.q, self.q_trg, tau=self.tau)
 
     def save(self):
         # torch.save(os.path.join(save_dir, 'encoder_ac.pt'))
@@ -161,17 +166,39 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
 class DDPGAgent(Agent):
     def __init__(self,
                  model: DDPGModel,
-                 buffer: ReplayBuffer,
-                 loss_func: function,
-                 noise: Any,
+                 update_interval=1,
+                 observation_shape=None,
+                 action_shape=None,
+                 num_epochs=1,
+                 # FIXME: handle device in model class
+                 device=None,
+                 buffer_cls=ReplayBuffer,
+                 buffer_kwargs=None,
                  **kwargs):
+        #  loss_func: Callable[["data", "model"], List[torch.tensor]],
+        #  noise: Any,
         # config = kwargs['config']
-        super().__init__(model, **kwargs)
+
+        # TODO: process config
+        assert observation_shape is not None, "obs error"
+        assert action_shape is not None, "ac error"
+        if device is None:
+            device = 'cpu'
+        if buffer_kwargs is None:
+            buffer_kwargs = {'size': 10}
+
+        super().__init__(model,
+                         update_interval,
+                         observation_shape,
+                         action_shape,
+                         num_epochs,
+                         device,
+                         buffer_cls,
+                         buffer_kwargs,)
         self.config = kwargs['config']
-        self.buffer = buffer
         self.model = model
         self.loss_func = loss_func
-        self.noise = noise
+        self.noise = Noise(action_shape)
 
     def act(self, obs: np.array) -> np.array:
         act = self.model.act(obs)
