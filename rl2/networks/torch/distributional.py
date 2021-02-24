@@ -1,7 +1,7 @@
 import torch
 from torch import nn
 
-# from rl2.distributions.torch.distributions import ScalarDist, SampleDist, CategoricalDist, DiagGaussianDist, MixtureGaussianDist
+from rl2.distributions.torch import ScalarDist, SampleDist, CategoricalDist, DiagGaussianDist, MixtureGaussianDist
 import torch.nn.functional as F
 
 """

@@ -2,9 +2,11 @@ from typing import Any, List, OrderedDict
 import torch
 import numpy as np
 from torch import nn
+import torch.nn.functional as F
 from importlib import import_module
-from rl2.models.torch.base import PolicyBasedModel, ValueBasedModel
+from rl2.models.torch.base import PolicyBasedModel, TorchModel, ValueBasedModel
 from torch.distributions import Distribution
+import copy
 
 from rl2.agents.configs import DEFAULT_DDPG_CONFIG
 from rl2.agents.base import Agent
@@ -16,44 +18,37 @@ from rl2.networks.torch.networks import MLP
 from rl2.networks.torch.distributional import ScalarHead
 # from rl2.loss import DDPGloss
 
-# from rl2.utils import noise
+from rl2.utils import Noise
 
-# TODO: implement loss func
-
-
-def loss_func_ac(self, data: 'batch'):
-    losses = []
-    s, a, r, d, s_ = data['obs']
-    a_trg = self.agent.mu_trg(s)
-    backup = r + gamma * self.agent.q_trg(s, a_trg)
-    loss = (backup - self.q(s, a)) ** 2
-    loss = loss.mean()
-
-    val_dist = self.agent.q_trg(o, a)
-    q = val_dist.mean()
+# TODO: Implement Noise
 
 
-def loss_func_cr(self, data: 'batch'):
-    obs = data['obs']
-    act = data['act']
-    trg = rew + gamma*self.mu_trg(obs, act)
-    q = self.model.infer(o, a)
-    self.critic()
+class Noise():
+    def __init__(self) -> None:
 
-    pass
+    def __call__(self) -> np.array:
+
+        # TODO: implement loss func
 
 
-def loss_func(self, data, **kwargs):
-    obs = data['obs']
-    ac_dist, val_dist = self.model.infer(obs)
-    vals = val_dist.mean
-    ac = ac_dist.mean
+def polyak_update(source, trg, tau=0.995):
+    # TODO: Implement polyak step update
+    for p, pt in zip(source.parameters(), trg.parameters()):
+        pt.data.copy_(tau * pt.data + (1-tau)*p.data)
 
-    ac_loss = self.loss_func_ac(**kwargs)
-    val_loss = self.loss_func_cr(**kwargs)
 
-    loss = [ac_loss, val_loss]
-    raise NotImplementedError
+def loss_func(data,
+              model: TorchModel,
+              **kwargs) -> List[torch.tensor]:
+    a_trg = model.mu_trg(data.s_)
+    bellman_trg = data.r + kwargs.gamma * \
+        model.q_trg(data.s, a_trg) * (1-data.d)
+    q = model.q(data.s, model.mu(data.s))
+
+    l_ac = F.smooth_l1_loss(q, bellman_trg)
+    l_cr = -q.mean()
+
+    loss = [l_ac, l_cr]
 
     return loss
 
@@ -100,13 +95,25 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
             ('cr', self.critic)
         ]))
 
+        if optim_ac is None:
+            self.optim_ac = torch.optim.Adam(self.mu.parameters())
+        if optim_cr is None:
+            self.optim_cr = torch.optim.Adam(self.q.parameters())
+
         self.optim_ac = self.get_optimizer_by_name(
             modules=self.mu, optim_name=optim_ac, **kwargs.optim_kwargs_ac)
         self.optim_cr = self.get_optimizer_by_name(
             modules=self.q, optim_name=optim_cr, **kwargs.optim_kwargs_cr)
 
+        self.mu_trg = copy.deepcopy(self.mu)
+        self.q_trg = copy.deepcopy(self.q)
+
+        for p_mu, p_q in zip(self.mu_trg.parameters(), self.q_trg.parameters()):
+            p_mu.requires_grad = False
+            p_q.requires_grad = False
+
     def act(self, obs: np.array) -> np.array:
-        ac_dist = self.mu(obs)
+        ac_dist = self.mu(torch.as_tensor(obs))
         act = ac_dist.mean
         act.numpy()
 
@@ -115,6 +122,7 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
     def val(self, obs, act) -> Distribution:
         val_dist = self.q(obs, act)
         val = val_dist.mean
+        val.numpy()
 
         return val
 
@@ -135,8 +143,9 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
         loss_cr.backward()
         self.optim_cr.step()
 
-        # TODO: Implement polyak step update
-        raise NotImplementedError
+    def update_trg(self):
+        polyak_update(self.mu, self.mu_trg, tau=self.tau)
+        polyak_update(self.q, self.q_trg, tau=self.tau)
 
     def save(self):
         # torch.save(os.path.join(save_dir, 'encoder_ac.pt'))
@@ -150,46 +159,44 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
 
 
 class DDPGAgent(Agent):
-    def __init__(self, model: DDPGModel, **kwargs):
+    def __init__(self,
+                 model: DDPGModel,
+                 buffer: ReplayBuffer,
+                 loss_func: function,
+                 noise: Any,
+                 **kwargs):
         # config = kwargs['config']
         super().__init__(model, **kwargs)
         self.config = kwargs['config']
-        self.buffer = ReplayBuffer()
+        self.buffer = buffer
         self.model = model
+        self.loss_func = loss_func
+        self.noise = noise
 
     def act(self, obs: np.array) -> np.array:
         act = self.model.act(obs)
         if self.explore:
-            act: np.array += self.noise
+            act += self.noise  # * self.config.eps
 
         return act
 
-    def step(self):
-        if self.curr_step % self.update_interval == 0:
-            loss: List[Any] = self.compute_loss(batch)
-            self.model.step(loss)
-            raise NotImplementedError
+    def step(self, s, a, r, d, s_):
+        self.collect(s, a, r, d, s_)
+        if self.curr_step % self.train_interval == 0:
+            self.train()
+        if self.curr_step % self.trg_update_interval == 0:
+            self.model.update_trg()
 
     def train(self):
-        trg_mu = copy.deepcopy(self.model.mu)
-        trg_q = copy.deepcopy(self.model.q)
-        for p_mu, p_q in zip(trg_mu.parameters(), trg_q.parameters():
-            p_mu.requires_grad=False
-            p_q.requires_grad=False
-
-        noise=Noise()
-
-        for i_epoch in range(self.num_epochs):
-            data=self.buffer.sample()
-            loss=self.loss_func(data)
-            self.model.step(loss)
-
+        batch = self.buffer.sample()
+        loss: List[Any] = self.loss_func(batch, self.model)
+        self.model.step(loss)
 
     def collect(self, s, a, r, d, s_):
         self.curr_step += 1
         self.buffer.push(s, a, r, d, s_)
 
 
-if __name__ == "__main__":
-    m=DDPGAgent(input_shape=5, enc_dim=128)
-    m.mu
+# if __name__ == "__main__":
+#     m=DDPGAgent(input_shape=5, enc_dim=128)
+#     m.mu
