@@ -1,9 +1,7 @@
-# from marlenv.marlenv.envs.utils import observation_space
-# from marlenv.marlenv.envs.utils import action_space
 from typing import Any, List, OrderedDict, Callable
 import torch
 import numpy as np
-from torch import nn
+from torch import float32, nn
 from torch import optim
 import torch.nn.functional as F
 from importlib import import_module
@@ -14,15 +12,10 @@ import copy
 from rl2.agents.configs import DEFAULT_DDPG_CONFIG
 from rl2.agents.base import Agent
 from rl2.models.torch.base import PolicyBasedModel, ValueBasedModel
-# from rl2.models.torch.dpg import DPGModel
-# from rl2.models.torch.actor_critic import ActorCriticModel
 from rl2.buffers.base import ReplayBuffer
 from rl2.networks.torch.networks import MLP
-from rl2.networks.torch.distributional import ScalarHead
+
 # from rl2.loss import DDPGloss
-
-# from rl2.utils import Noise
-
 # TODO: Implement Noise
 
 
@@ -44,10 +37,12 @@ def polyak_update(source, trg, tau=0.995):
 def loss_func(data,
               model: TorchModel,
               **kwargs) -> List[torch.tensor]:
-    a_trg = model.mu_trg(data.s_)
-    bellman_trg = data.r + kwargs.gamma * \
-        model.q_trg(data.s, a_trg) * (1-data.d)
-    q = model.q(data.s, model.mu(data.s))
+    s, a, r, d, s_ = tuple(
+        map(lambda x: torch.from_numpy(x).float().to(model), data))
+    a_trg = model.mu_trg(s_)
+    bellman_trg = r + kwargs.gamma * \
+        model.q_trg(s, a_trg) * (1-d)
+    q = model.q(s, model.mu(s))
 
     l_ac = F.smooth_l1_loss(q, bellman_trg)
     l_cr = -q.mean()
@@ -64,41 +59,26 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
     """
 
     def __init__(self,
-                 input_shape,
-                 enc_dim,
-                 action_dim,
-                 enc_ac: torch.nn.Module = None,
-                 enc_cr: torch.nn.Module = None,
+                 observation_shape,
+                 action_shape,
+                 actor: torch.nn.Module = None,
+                 critic: torch.nn.Module = None,
                  optim_ac: str = None,
                  optim_cr: str = None,
                  **kwargs):
 
-        super().__init__(input_shape, **kwargs)
-        # config = kwargs['config']
-        if enc_ac is None:
-            self.encoder_ac = MLP(in_shape=input_shape,
-                                  out_shape=enc_dim)
-        if enc_cr is None:
+        super().__init__(observation_shape, action_shape, **kwargs)
+        if actor is None and len(observation_shape) == 1:
+            actor = MLP(in_shape=observation_shape[0],
+                        out_shape=action_shape[0])
+
+        if critic is None:
             # FIXME: Acition_dim management
-            self.encoder_cr = MLP(in_shape=(input_shape + action_dim[0]),
-                                  out_shape=enc_dim)
+            critic = MLP(in_shape=(observation_shape[0] + action_shape[0]),
+                         out_shape=1)
 
-        self.actor = ScalarHead(
-            input_size=enc_dim,
-            out_size=1)
-        self.critic = ScalarHead(
-            input_size=enc_dim,
-            out_size=1)
-
-        self.mu = nn.Sequential(
-            self.encoder_ac,
-            self.actor
-        )
-
-        self.q = nn.Sequential(
-            self.encoder_cr,
-            self.critic
-        )
+        self.mu = actor
+        self.q = critic
 
         if optim_ac is None:
             self.optim_ac = "torch.optim.Adam"
@@ -106,9 +86,9 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
             self.optim_cr = "torch.optim.Adam"
 
         self.optim_ac = self.get_optimizer_by_name(
-            modules=self.mu, optim_name=self.optim_ac)
+            modules=[self.mu], optim_name=self.optim_ac)
         self.optim_cr = self.get_optimizer_by_name(
-            modules=self.q, optim_name=self.optim_cr)  # , optim_kwargs=kwargs['optim_kwargs_cr'])
+            modules=[self.q], optim_name=self.optim_cr)
 
         self.mu_trg = copy.deepcopy(self.mu)
         self.q_trg = copy.deepcopy(self.q)
@@ -118,11 +98,10 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
             p_q.requires_grad = False
 
     def act(self, obs: np.array) -> np.array:
-        ac_dist = self.mu(torch.as_tensor(obs))
-        act = ac_dist.mean
-        act.numpy()
+        action = self.mu(torch.from_numpy(obs).float())
+        action = action.detach().cpu().numpy()
 
-        return act
+        return action
 
     def val(self, obs, act) -> Distribution:
         val_dist = self.q(obs, act)
@@ -167,8 +146,6 @@ class DDPGAgent(Agent):
     def __init__(self,
                  model: DDPGModel,
                  update_interval=1,
-                 observation_shape=None,
-                 action_shape=None,
                  num_epochs=1,
                  # FIXME: handle device in model class
                  device=None,
@@ -180,30 +157,25 @@ class DDPGAgent(Agent):
         # config = kwargs['config']
 
         # TODO: process config
-        assert observation_shape is not None, "obs error"
-        assert action_shape is not None, "ac error"
-        if device is None:
-            device = 'cpu'
         if buffer_kwargs is None:
             buffer_kwargs = {'size': 10}
 
         super().__init__(model,
                          update_interval,
-                         observation_shape,
-                         action_shape,
                          num_epochs,
-                         device,
                          buffer_cls,
                          buffer_kwargs,)
-        self.config = kwargs['config']
+        # self.config = kwargs['config']
         self.model = model
         self.loss_func = loss_func
-        self.noise = Noise(action_shape)
+        self.eps = 0.1
+        self.explore = True
+        # TODO: change to noise func or class
 
     def act(self, obs: np.array) -> np.array:
         act = self.model.act(obs)
         if self.explore:
-            act += self.noise  # * self.config.eps
+            act += self.eps * np.random.randn(*act.shape)
 
         return act
 
