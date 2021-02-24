@@ -6,6 +6,7 @@ import warnings
 
 class ReplayBuffer:
     def __init__(self, size, s_shape=(4, 84, 84), decimal=True, more={}):
+        # FIXME: Mutable default argument
         max_size = int(size)
         self.data_type = np.float32 if decimal else np.uint8
         self.s = np.ones((max_size, *s_shape), dtype=np.uint8)
