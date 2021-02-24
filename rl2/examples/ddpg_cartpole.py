@@ -21,9 +21,10 @@ below example just changes 1. and some hparams
 device = 'cpu'
 
 env = gym.make('CartPole-v1')
-input_shape = env.observation_space.shape
-if len(input_shape) > 1:
-    input_shape = (input_shape[-1], *input_shape[:-1])
+input_shape = env.observation_space.shape[0]
+
+# if len(input_shape) > 1:
+#     input_shape = (input_shape[-1], *input_shape[:-1])
 
 config = DEFAULT_DDPG_CONFIG
 
@@ -33,8 +34,9 @@ myconfig = {
 print(input_shape)
 
 if __name__ == '__main__':
-    model = DDPGModel(input_shape=input_shape, enc_dim=128)
-    agent = DDPGAgent(model, config=config)
+    model = DDPGModel(input_shape=input_shape, action_dim=(2,), enc_dim=128)
+    agent = DDPGAgent(model, config=config, observation_shape=env.observation_space.shape,
+                      action_shape=env.action_space.shape)
     worker = MaxStepWorker(env=env, agent=agent, max_steps=1e7)
 
     worker.run()

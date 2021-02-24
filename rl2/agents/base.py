@@ -1,5 +1,5 @@
 from typing import Union
-from numpy.typing import numpy as np
+import numpy as np
 import torch
 
 from rl2.models.tf.base import TFModel
@@ -33,6 +33,8 @@ class Agent:
         self.model = model
         # self.model.input_shape = observation_shape
         self.observation_shape = observation_shape
+        # FIXME: unify variable name shape vs space
+        self.action_shape = action_shape
         self.action_space = action_shape
 
         self.num_epochs = num_epochs

@@ -1,6 +1,7 @@
 import importlib
 from typing import Any, T_co
 from abc import abstractmethod
+import itertools
 
 import numpy as np
 import torch
@@ -89,11 +90,11 @@ class TorchModel(nn.Module):
             p_t.data.copy_(alpha * p_t.data + (1 - alpha) * p.data)
 
     @staticmethod
-    def get_optimizer_by_name(modules, optim_name: str, optim_kwargs: dict) -> Optimizer:
+    def get_optimizer_by_name(modules, optim_name: str, **optim_kwargs) -> Optimizer:
         params = [module.parameters() for module in modules]
         mod = importlib.import_module('.'.join(optim_name.split('.')[:-1]))
         pkg = optim_name.split('.')[-1]
-        optimizer = getattr(mod, pkg)(params, **optim_kwargs)
+        optimizer = getattr(mod, pkg)(itertools.chain(*params), **optim_kwargs)
 
         return optimizer
 
@@ -167,8 +168,8 @@ class ValueBasedModel(TorchModel):
         self.q_network = None
         self.target_network = None
 
-    def copy_param(self, source, target, alpha=0.0):
-        self.copy_param(self.q_network, self.target_network)
+    def update_trg(self, alpha=0.0):
+        self.copy_param(self.q_network, self.target_network, alpha)
 
     def forward(self, state):
         """

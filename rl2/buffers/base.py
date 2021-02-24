@@ -1,4 +1,5 @@
 import random
+from typing import List
 from collections import Iterable
 import numpy as np
 import warnings
@@ -8,10 +9,14 @@ class ReplayBuffer:
     def __init__(self, size, s_shape=(4, 84, 84), decimal=True, more={}):
         # FIXME: Mutable default argument
         max_size = int(size)
+        self.max_size = max_size
+        data_type = np.float32 if decimal else np.uint8
         self.data_type = np.float32 if decimal else np.uint8
         self.s = np.ones((max_size, *s_shape), dtype=np.uint8)
         self.a = np.ones((max_size,), dtype=np.uint8)
-        self.r = np.zeros((max_size,), dtype=self.data_type)
+        # FIXME: AttributeError: 'ReplayBuffer' object has no attribute 'data_type'
+        # self.r = np.zeros((max_size,), dtype=self.data_type)
+        self.r = np.zeros((max_size,), dtype=data_type)
         self.d = np.ones((max_size,), dtype=np.uint8)
         self.s_ = np.ones((max_size, *s_shape), dtype=np.uint8)
         self.more = more.keys()
@@ -20,16 +25,17 @@ class ReplayBuffer:
             setattr(self, k, np.ones((max_size, *shape), dtype=self.data_type))
 
         self.curr_idx = 0
-        self.max_size = max_size
         self.curr_size = 0
 
     def __getitem__(self, sample_idx):
         return [self.s[sample_idx], self.a[sample_idx], self.r[sample_idx], self.d[sample_idx], self.s_[sample_idx]]
 
     def __setattr__(self, key, value):
-        if self.max_size != len(value):
-            raise ValueError(
-                f'buffer max size != {key} length, {self.max_size} != {len(value)}')
+        # FIXME: 'ReplayBuffer' object has no attribute 'max_size'
+        # if self.max_size != len(value):
+        #     raise ValueError(
+        #         f'buffer max size != {key} length, {self.max_size} != {len(value)}')
+        pass
 
     def to_dict(self):
         d = {
@@ -109,7 +115,7 @@ class ReplayBuffer:
         #     self.curr_idx += 1
         # return self.curr_size
 
-    def sample(self, num, idx=None) -> List[ReplayBuffer]:
+    def sample(self, num, idx=None) -> List["ReplayBuffer"]:
         if idx is None:
             sample_idx = np.random.randint(self.curr_size, size=num)
         else:
