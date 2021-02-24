@@ -7,8 +7,20 @@ from collections.abc import Iterable
 from rl2.agents.base import Agent
 from rl2.models.torch.base import TorchModel
 from rl2.models.torch.ddpg import DDPGModel
-from rl2.buffer import ReplayBuffer
+from rl2.buffers import ReplayBuffer
 from rl2.networks import MLP
+
+
+def loss_func(data,
+              model: TorchModel,
+              gamma: int):
+    state = data.state
+    action = data.action
+    done = torch.from_numpy(
+    q =
+    bellman_target = data.reward + gamma * (1 - data.done) * target_q_prime
+    critic_loss = (bellman_target - q)
+    return loss
 
 
 class MADDPGModel(TorchModel):
@@ -21,7 +33,8 @@ class MADDPGModel(TorchModel):
             assert 'ac_encoder' in kwargs
         emb_shape = 128
         self.ac_encoder = kwargs.get('ac_encoder', MLP(obs_shape, emb_shape))
-        self.cr_encoder = kwargs.get('cr_encoder', MLP(obs_shape + full_ac_shape, emb_shape))
+        self.cr_encoder = kwargs.get('cr_encoder',
+                                     MLP(obs_shape + full_ac_shape, emb_shape))
         # TODO: change these to spit out distributions
         self.ac_head = kwargs.get('ac_head', MLP(emb_shape, ac_shape))
         self.cr_head = kwargs.get('cr_head', MLP(emb_shape, 1))
@@ -75,7 +88,7 @@ class MADDPGAgent(Agent):
 
         self.models = []
         full_ac_shape = np.asarray(ac_shapes).sum()
-        for i  in range(num_agents):
+        for i in range(num_agents):
             self.models.append(
                 MADDPGModel(obs_shapes[i], ac_shapes[i], full_ac_shape, i))
 
@@ -83,7 +96,7 @@ class MADDPGAgent(Agent):
         start_eps = 0.9
         end_eps = 0.01
         self.eps = start_eps
-        self.eps_func = lambda x, y : max(end_eps, x - start_eps / y)
+        self.eps_func = lambda x, y: max(end_eps, x - start_eps / y)
         self.explore_steps = 1e5
 
         buffer_size = kwargs.get('buffer_size', int(1e5))
