@@ -1,5 +1,5 @@
 import importlib
-from typing import Any, T_co
+from typing import Any, Iterable, T_co
 from abc import abstractmethod
 import itertools
 
@@ -28,13 +28,18 @@ class TorchModel(nn.Module):
 
     def __init__(
             self,
-            input_shape: tuple,
+            observation_shape: tuple,
+            action_shape: tuple,
             save_dir: str = None,
-            device: str = None,
+            device: str = None
     ):
         super().__init__()
-        self.input_shape = input_shape
-        self.save_dir = save_dir
+        self.observaion_shape = observation_shape
+        self.action_shape = action_shape
+        self.save = False
+        if save_dir is not None:
+            self.save = True
+            self.save_dir = save_dir
 
         available_device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.device = device if device else available_device
@@ -42,14 +47,6 @@ class TorchModel(nn.Module):
 
     def forward(self, *args, **kwargs):
         raise NotImplementedError
-
-    @abstractmethod
-    def infer(self, state) -> Distribution:
-        """
-        forward input through part of neural net just for action selection
-        separate this method from forward to avoid unwanted matmul when making only inference
-        """
-        pass
 
     @abstractmethod
     def step(self, loss):
@@ -90,7 +87,7 @@ class TorchModel(nn.Module):
             p_t.data.copy_(alpha * p_t.data + (1 - alpha) * p.data)
 
     @staticmethod
-    def get_optimizer_by_name(modules, optim_name: str, **optim_kwargs) -> Optimizer:
+    def get_optimizer_by_name(modules: Iterable, optim_name: str, **optim_kwargs) -> Optimizer:
         params = [module.parameters() for module in modules]
         mod = importlib.import_module('.'.join(optim_name.split('.')[:-1]))
         pkg = optim_name.split('.')[-1]
@@ -107,26 +104,17 @@ class PolicyBasedModel(TorchModel):
     """
 
     @abstractmethod
-    def __init__(self, input_shape, **kwargs):
-        super().__init__(input_shape, **kwargs)
-
-    def forward(self, *input: Any, **kwargs: Any) -> T_co:
-
-        ac_dist = self.actor(obs)
-        action = ac_dist.sample()
-        val_dist = self.critic(obs, action)
-
-        return ac_dist, val_dist
+    def __init__(self, observation_shape, action_shape, **kwargs):
+        save_dir = kwargs.get('save_dir')
+        device = kwargs.get('device')
+        super().__init__(observation_shape, action_shape, save_dir=save_dir, device=device)
 
     @abstractmethod
-    def infer(self) -> Distribution:
+    def forward(self, state):
         """
-        TODO:
-        implement vanila pg infer
-        :return:
+        TODO: implement vanila pg learning
         """
-        ac_dist = self.actor(obs)
-        return ac_dist
+        pass
 
     @abstractmethod
     def step(self, loss):
@@ -134,7 +122,6 @@ class PolicyBasedModel(TorchModel):
         TODO:
         implement vanila pg step
         """
-
         pass
 
     @abstractmethod
@@ -163,27 +150,23 @@ class ValueBasedModel(TorchModel):
     """
 
     @abstractmethod
-    def __init__(self, input_shape, **kwargs):
-        super().__init__(input_shape, **kwargs)
+    def __init__(self, observation_shape, action_shape, **kwargs):
+        save_dir = kwargs.get('save_dir')
+        device = kwargs.get('device')
+        super().__init__(observation_shape, action_shape, save_dir, device)
+
         self.q_network = None
         self.target_network = None
 
     def update_trg(self, alpha=0.0):
         self.copy_param(self.q_network, self.target_network, alpha)
 
+    @abstractmethod
     def forward(self, state):
         """
         TODO: implement vanila q learning
         """
         pass
-
-    @abstractmethod
-    def infer(self, state) -> Distribution:
-        q_dist = self.q_network(state)
-        """
-        will be argmaxed on agent side
-        """
-        return q_dist
 
     @abstractmethod
     def step(self, loss):

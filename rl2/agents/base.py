@@ -19,10 +19,8 @@ class Agent:
             # model must be instantiated and initialized before passing as argument
             model: Union[TorchModel, TFModel],
             update_interval,
-            observation_shape,
-            action_shape,
             num_epochs,
-            device,
+            # device,
             buffer_cls,
             buffer_kwargs,
     ):
@@ -31,14 +29,9 @@ class Agent:
 
         # """
         self.model = model
-        # self.model.input_shape = observation_shape
-        self.observation_shape = observation_shape
-        # FIXME: unify variable name shape vs space
-        self.action_shape = action_shape
-        self.action_space = action_shape
 
         self.num_epochs = num_epochs
-        self.device = device
+        # self.device = device
 
         self.buffer = buffer_cls(**buffer_kwargs)
         self._hook = None
