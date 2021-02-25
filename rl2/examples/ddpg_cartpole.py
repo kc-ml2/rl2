@@ -36,6 +36,6 @@ if __name__ == '__main__':
     model = DDPGModel(observation_shape=observation_shape,
                       action_shape=action_shape)
     agent = DDPGAgent(model)
-    worker = MaxStepWorker(env=env, agent=agent, max_steps=1e7)
+    worker = MaxStepWorker(env=env, agent=agent, training=True, max_steps=1e7)
 
     worker.run()
