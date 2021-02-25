@@ -6,7 +6,7 @@ import warnings
 
 
 class ReplayBuffer:
-    def __init__(self, size, s_shape=(4, 84, 84), decimal=True, more={}):
+    def __init__(self, size, s_shape, decimal=True, more={}):
         # FIXME: Mutable default argument
         max_size = int(size)
         self.max_size = max_size
@@ -30,12 +30,15 @@ class ReplayBuffer:
     def __getitem__(self, sample_idx):
         return [self.s[sample_idx], self.a[sample_idx], self.r[sample_idx], self.d[sample_idx], self.s_[sample_idx]]
 
-    def __setattr__(self, key, value):
-        # FIXME: 'ReplayBuffer' object has no attribute 'max_size'
-        # if self.max_size != len(value):
-        #     raise ValueError(
-        #         f'buffer max size != {key} length, {self.max_size} != {len(value)}')
-        pass
+    # def __setattr__(self, key, value):
+    #     # FIXME: 'ReplayBuffer' object has no attribute 'max_size'
+    #     try:
+    #         if self.max_size != len(value):
+    #             raise ValueError(
+    #                 f'buffer max size != {key} length, {self.max_size} != {len(value)}')
+    #     except AttributeError:
+    #         pass
+    #     object.__setattr__(self, key, value)
 
     def to_dict(self):
         d = {
@@ -115,15 +118,15 @@ class ReplayBuffer:
         #     self.curr_idx += 1
         # return self.curr_size
 
-    def sample(self, num, idx=None) -> List["ReplayBuffer"]:
+    def sample(self, num, idx=None):
         if idx is None:
             sample_idx = np.random.randint(self.curr_size, size=num)
         else:
             sample_idx = idx
-        samples = [self[sample_idx]]
-        for key in self.more:
-            samples.append(getattr(self, key)[sample_idx])
-        samples.append(sample_idx)
+        samples = self[sample_idx]
+        # for key in self.more:
+        #     samples.append(getattr(self, key)[sample_idx])
+        # samples.append(sample_idx)
         return samples
 
     def update_(self, idxs, **new_vals):
