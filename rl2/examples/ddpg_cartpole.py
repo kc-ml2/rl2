@@ -5,7 +5,7 @@ from torch import nn
 
 from rl2.agents.ddpg import DDPGAgent, DDPGModel
 from rl2.agents.configs import DEFAULT_DDPG_CONFIG
-from rl2.workers.base import MaxStepWorker
+from rl2.workers.base import EpisodicWorker, MaxStepWorker
 
 
 """
@@ -18,17 +18,14 @@ etc...
 below example just changes 1. and some hparams
 """
 
-device = 'cpu'
-
 env = gym.make('MountainCarContinuous-v0')
 config = DEFAULT_DDPG_CONFIG
 
 myconfig = {
-    # TODO
+    # TODO: Example config
 }
 
 if __name__ == '__main__':
-    # FIXME: unify variable name input_shape vs observation shape
     observation_shape = env.observation_space.shape
     action_shape = (env.action_space.n,) if hasattr(
         env.action_space, 'n') else env.action_space.shape
@@ -36,6 +33,13 @@ if __name__ == '__main__':
     model = DDPGModel(observation_shape=observation_shape,
                       action_shape=action_shape)
     agent = DDPGAgent(model)
-    worker = MaxStepWorker(env=env, agent=agent, training=True, max_steps=1e7)
+    # worker = MaxStepWorker(env=env, agent=agent, training=True, max_steps=1e7)
+    worker = EpisodicWorker(env=env,
+                            agent=agent,
+                            training=True,
+                            max_episodes=10,
+                            max_steps_per_ep=1e4,
+                            max_steps=1e7,
+                            render=True)
 
     worker.run()

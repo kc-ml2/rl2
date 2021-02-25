@@ -1,9 +1,8 @@
-from typing import Any, List, OrderedDict, Callable
+from typing import Any, List
 import torch
 import numpy as np
-from torch import detach, float32, nn
-from torch import optim
 import torch.nn.functional as F
+from easydict import EasyDict
 from importlib import import_module
 from rl2.models.torch.base import PolicyBasedModel, TorchModel, ValueBasedModel
 from torch.distributions import Distribution
@@ -15,10 +14,10 @@ from rl2.models.torch.base import PolicyBasedModel, ValueBasedModel
 from rl2.buffers.base import ReplayBuffer
 from rl2.networks.torch.networks import MLP
 
+# FIXME: Move loss function to somewhere else
 # from rl2.loss import DDPGloss
+
 # TODO: Implement Noise
-
-
 # class Noise():
 #     def __init__(self, action_shape):
 #         self.action_shape = action_shape
@@ -28,28 +27,19 @@ from rl2.networks.torch.networks import MLP
 #         # TODO: implement loss func
 
 
-# def polyak_update(source, trg, tau=0.995):
-#     # TODO: Implement polyak step update
-#     for p, pt in zip(source.parameters(), trg.parameters()):
-#         pt.data.copy_(tau * pt.data + (1-tau)*p.data)
-
-
-def loss_func(data,
-              model: TorchModel,
-              **kwargs) -> List[torch.tensor]:
-    # FIXME: review loss function
-    s, a, r, d, s_ = tuple(
-        map(lambda x: torch.from_numpy(x).float(), data))
+def loss_func(data, model: TorchModel, **kwargs) -> List[torch.tensor]:
+    s, a, r, d, s_ = tuple(map(lambda x: torch.from_numpy(x).float(), data))
+    # FIXME: unsqueeze in buffer.sample function; remove later
     a, d, r = tuple(map(lambda x: x.unsqueeze(-1), (a, d, r)))
+
     a_trg = model.mu_trg(s_)
     v_trg = model.q_trg(torch.cat([s_, a_trg], dim=-1))
     bellman_trg = r + kwargs['gamma'] * v_trg * (1-d)
-    tmp = torch.cat([s, a], dim=-1)
-    q_cr = model.q(tmp)
+
+    q_cr = model.q(torch.cat([s, a], dim=-1))
     l_cr = F.smooth_l1_loss(q_cr, bellman_trg)
 
-    tmp = torch.cat([s, model.mu(s)], dim=-1)
-    q_ac = model.q(tmp)
+    q_ac = model.q(torch.cat([s, model.mu(s)], dim=-1))
     l_ac = -q_ac.mean()
 
     loss = [l_ac, l_cr]
@@ -74,6 +64,11 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
 
         super().__init__(observation_shape, action_shape, **kwargs)
 
+        self.config = EasyDict(DEFAULT_DDPG_CONFIG)
+        if 'config' in kwargs.keys():
+            self.config = EasyDict(kwargs['config'])
+
+        # FIXME: What if action is a matrix?
         if actor is None and len(observation_shape) == 1:
             actor = MLP(in_shape=observation_shape[0],
                         out_shape=action_shape[0])
@@ -90,11 +85,10 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
             self.optim_ac = "torch.optim.Adam"
         if optim_cr is None:
             self.optim_cr = "torch.optim.Adam"
-
         self.optim_ac = self.get_optimizer_by_name(
-            modules=[self.mu], optim_name=self.optim_ac, lr=1e-3)
+            modules=[self.mu], optim_name=self.optim_ac, lr=self.config.lr_ac)
         self.optim_cr = self.get_optimizer_by_name(
-            modules=[self.q], optim_name=self.optim_cr, lr=1e-3)
+            modules=[self.q], optim_name=self.optim_cr, lr=self.config.lr_cr)
 
         self.mu_trg = copy.deepcopy(self.mu)
         self.q_trg = copy.deepcopy(self.q)
@@ -110,6 +104,7 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
         return action
 
     def val(self, obs: np.array, act: np.array) -> np.array:
+        # TODO: Currently not using func; remove later
         obs = torch.from_numpy(obs).float()
         act = torch.from_numpy(obs).float()
         value = self.q(torch.cat(obs, act))
@@ -135,9 +130,9 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
         self.optim_cr.step()
 
     def update_trg(self):
-        # FIXME: Overiding update_trg function
-        self.copy_param(self.mu, self.mu_trg, alpha=0.005)
-        self.copy_param(self.q, self.q_trg, alpha=0.005)
+        # FIXME: Overiding update_trg function; change copy_param to polyak_update?
+        self.copy_param(self.mu, self.mu_trg, alpha=self.config.polyak)
+        self.copy_param(self.q, self.q_trg, alpha=self.config.polyak)
 
     # def update_trg(self):
     #     polyak_update(self.mu, self.mu_trg, tau=self.tau)
@@ -157,55 +152,55 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
 class DDPGAgent(Agent):
     def __init__(self,
                  model: DDPGModel,
-                 update_interval=128,
-                 train_interval=1,
-                 num_epochs=1,
-                 # FIXME: handle device in model class
-                 device=None,
-                 buffer_cls=ReplayBuffer,
-                 buffer_kwargs=None,
+                 update_interval: int = 1,
+                 train_interval: int = 1,
+                 num_epochs: int = 1,
+                 buffer_cls: ReplayBuffer = ReplayBuffer,
+                 buffer_kwargs: dict = None,
+                 explore: bool = True,
                  **kwargs):
-        #  loss_func: Callable[["data", "model"], List[torch.tensor]],
-        #  noise: Any,
+        # TODO: process config
         # config = kwargs['config']
         self.model = model
-        # TODO: process config
+        self.config = self.model.config
+
         if buffer_kwargs is None:
-            buffer_kwargs = {'size': 512,
+            buffer_kwargs = {'size': self.config.buffer_size,
                              's_shape': self.model.observation_shape}
 
         super().__init__(model,
                          update_interval,
                          num_epochs,
                          buffer_cls,
-                         buffer_kwargs,)
-        # self.config = kwargs['config']
+                         buffer_kwargs)
         self.train_interval = train_interval
+        # TODO: change to noise func or class for eps scheduling
         self.loss_func = loss_func
         self.eps = 0.01
-        self.explore = True
-        # TODO: change to noise func or class
+        self.explore = explore
 
     def act(self, obs: np.array) -> np.array:
-        act = self.model.act(obs)
+        action = self.model.act(obs)
         if self.explore:
-            act += self.eps * np.random.randn(*act.shape)
+            action += self.eps * np.random.randn(*action.shape)
 
-        return act
+        return action
 
     def step(self, s, a, r, d, s_):
         self.collect(s, a, r, d, s_)
-        if self.curr_step % self.train_interval == 0:
+        if self.curr_step % self.train_interval == 0 and self.buffer.is_full:
             self.train()
-        if self.curr_step % self.update_interval == 0:
+        if self.curr_step % self.update_interval == 0 and self.buffer.is_full:
             self.model.update_trg()
 
     def train(self):
-        batch = self.buffer.sample(256)
-        loss: List[Any] = self.loss_func(batch, self.model, gamma=0.999)
+        batch = self.buffer.sample(self.config.batch_size)
+        loss: List[Any] = self.loss_func(
+            batch, self.model, gamma=self.config.gamma)
         self.model.step(loss)
+
         # FIXME: tmp logging; remove later
-        if self.curr_step % 1000 == 0:
+        if self.curr_step % self.config.log_interval == 0:
             log = list(map(lambda x: x.detach().cpu().numpy(), loss))
             print(f"ac_loss: {log[0]}, cr_loss: {log[1]}")
 

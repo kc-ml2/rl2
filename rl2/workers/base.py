@@ -1,3 +1,5 @@
+# TODO: remove _rl2 dependency
+from _rl2.settings import INF
 from rl2.agents.base import Agent
 
 
@@ -54,6 +56,7 @@ class RolloutWorker:
             obs = self.env.reset()
         # Update next obs
         self.obs = obs
+        info = rew
         results = None
 
         return done, info, results
@@ -64,16 +67,14 @@ class MaxStepWorker(RolloutWorker):
     do rollout until max steps given
     """
 
-    def __init__(self, env, agent, max_steps, **kwargs):
+    def __init__(self, env, agent,
+                 max_steps: int, **kwargs):
         super().__init__(env, agent, **kwargs)
         self.max_steps = int(max_steps)
 
     def run(self):
         for step in range(self.max_steps):
             done, info, results = self.rollout()
-
-            if done:  # do sth about ven env
-                self.num_episodes += 1
 
             # TODO: when done do sth like logging from results
 
@@ -84,14 +85,28 @@ class EpisodicWorker(RolloutWorker):
     might be useful at inference time or when training episodically
     """
 
-    def __init__(self, env, agent, num_episodes=1, **kwargs):
+    def __init__(self, env, agent,
+                 max_steps: int = None,
+                 max_episodes: int = 10,
+                 max_steps_per_ep: int = 1e4,
+                 **kwargs):
         super().__init__(env, agent, **kwargs)
-        self.num_episodes = num_episodes
+        self.max_steps = int(max_steps)
+        self.max_episodes = int(max_episodes)
+        self.max_steps_per_ep = int(INF) if max_steps is None else int(
+            max_steps_per_ep)
+        self.rews = 0
+        self.rews_ep = []
 
     def run(self):
-        for episode in range(self.num_episodes):
-            done = False
-            while not done:
+        for episode in range(self.max_episodes):
+            for step in range(self.max_steps_per_ep):
                 done, info, results = self.rollout()
+                self.rews += info
+                if done or step == (self.max_steps-1):
+                    self.rews_ep.append(self.rews)
+                    print(
+                        f"num_ep: {self.num_episodes}, episodic_reward: {self.rews}")
+                    self.rews = 0
 
-            # TODO: when done do sth like logging
+        # TODO: when done do sth like logging

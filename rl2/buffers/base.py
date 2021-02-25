@@ -118,7 +118,7 @@ class ReplayBuffer:
         #     self.curr_idx += 1
         # return self.curr_size
 
-    def sample(self, num, idx=None):
+    def sample(self, num, idx=None) -> List[np.array]:
         if idx is None:
             sample_idx = np.random.randint(self.curr_size, size=num)
         else:
