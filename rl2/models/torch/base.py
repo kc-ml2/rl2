@@ -34,7 +34,7 @@ class TorchModel(nn.Module):
             device: str = None
     ):
         super().__init__()
-        self.observaion_shape = observation_shape
+        self.observation_shape = observation_shape
         self.action_shape = action_shape
         self.save = False
         if save_dir is not None:
