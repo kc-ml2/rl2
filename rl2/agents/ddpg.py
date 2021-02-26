@@ -3,14 +3,12 @@ import torch
 import numpy as np
 import torch.nn.functional as F
 from easydict import EasyDict
-from importlib import import_module
-from rl2.models.torch.base import PolicyBasedModel, TorchModel, ValueBasedModel
 from torch.distributions import Distribution
 import copy
 
 from rl2.agents.configs import DEFAULT_DDPG_CONFIG
 from rl2.agents.base import Agent
-from rl2.models.torch.base import PolicyBasedModel, ValueBasedModel
+from rl2.models.torch.base import PolicyBasedModel, TorchModel, ValueBasedModel
 from rl2.buffers.base import ReplayBuffer
 from rl2.networks.torch.networks import MLP
 
@@ -67,35 +65,35 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
         self.config = EasyDict(DEFAULT_DDPG_CONFIG)
         if 'config' in kwargs.keys():
             self.config = EasyDict(kwargs['config'])
-
-        # FIXME: What if action is a matrix?
-        if actor is None and len(observation_shape) == 1:
-            actor = MLP(in_shape=observation_shape[0],
-                        out_shape=action_shape[0])
-
-        if critic is None:
-            # FIXME: Acition_dim management
-            critic = MLP(in_shape=(observation_shape[0] + action_shape[0]),
-                         out_shape=1)
-
-        self.mu = actor
-        self.q = critic
-
         if optim_ac is None:
-            self.optim_ac = "torch.optim.Adam"
+            optim_ac = "torch.optim.Adam"
         if optim_cr is None:
-            self.optim_cr = "torch.optim.Adam"
-        self.optim_ac = self.get_optimizer_by_name(
-            modules=[self.mu], optim_name=self.optim_ac, lr=self.config.lr_ac)
-        self.optim_cr = self.get_optimizer_by_name(
-            modules=[self.q], optim_name=self.optim_cr, lr=self.config.lr_cr)
+            optim_cr = "torch.optim.Adam"
 
-        self.mu_trg = copy.deepcopy(self.mu)
-        self.q_trg = copy.deepcopy(self.q)
+        self.mu, self.optim_ac, self.mu_trg = self._make_mlp_optim_target(
+            actor,
+            observation_shape[0],
+            action_shape[0],
+            optim_ac
+        )
+        self.q, self.optim_cr, self.q_trg = self._make_mlp_optim_target(
+            critic,
+            observation_shape[0] + action_shape[0],
+            1,
+            optim_cr
+        )
 
-        for p_mu, p_q in zip(self.mu_trg.parameters(), self.q_trg.parameters()):
-            p_mu.requires_grad = False
-            p_q.requires_grad = False
+    def _make_mlp_optim_target(self, network,
+                               num_input, num_output, optim_name):
+        if network is None:
+            network = MLP(in_shape=num_input, out_shape=num_output)
+        optimizer = self.get_optimizer_by_name(
+            modules=network, optim_name=optim_name)
+        target_network = copy.deepcopy(network)
+        for param in target_network:
+            param.requires_grad = False
+
+        return network, optimizer, target_network
 
     def act(self, obs: np.array) -> np.array:
         action = self.mu(torch.from_numpy(obs).float())
@@ -130,9 +128,8 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
         self.optim_cr.step()
 
     def update_trg(self):
-        # FIXME: Overiding update_trg function; change copy_param to polyak_update?
-        self.copy_param(self.mu, self.mu_trg, alpha=self.config.polyak)
-        self.copy_param(self.q, self.q_trg, alpha=self.config.polyak)
+        self.polyak_update(self.mu, self.mu_trg, alpha=self.config.polyak)
+        self.polyak_update(self.q, self.q_trg, alpha=self.config.polyak)
 
     # def update_trg(self):
     #     polyak_update(self.mu, self.mu_trg, tau=self.tau)
@@ -166,7 +163,8 @@ class DDPGAgent(Agent):
 
         if buffer_kwargs is None:
             buffer_kwargs = {'size': self.config.buffer_size,
-                             's_shape': self.model.observation_shape}
+                             'state_shape': self.model.observation_shape,
+                             'action_shape': self.model.action_shape}
 
         super().__init__(model,
                          update_interval,

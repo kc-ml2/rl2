@@ -82,7 +82,7 @@ class TorchModel(nn.Module):
                     module.bias.data.zero_()
 
     @staticmethod
-    def copy_param(source, target, alpha=0.0):
+    def polyak_update(source, target, alpha=0.0):
         for p, p_t in zip(source.parameters(), target.parameters()):
             p_t.data.copy_(alpha * p_t.data + (1 - alpha) * p.data)
 

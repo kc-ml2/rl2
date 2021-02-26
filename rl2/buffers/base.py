@@ -32,10 +32,12 @@ class ReplayBuffer:
     def __getitem__(self, sample_idx):
         return [getattr(self, key)[sample_idx] for key in self.keys]
 
+    '''
     def __setattr__(self, key, value):
         if self.max_size != len(value):
             raise ValueError(f'buffer max size != {key} length, '
                              '{self.max_size} != {len(value)}')
+    '''
 
     def to_dict(self):
         d = {}
@@ -77,6 +79,21 @@ class ReplayBuffer:
         idxs = idxs.astype(np.int32)
         for k, v in new_vals.items():
             getattr(self, k)[idxs] = v
+
+
+class ExperienceReplay(ReplayBuffer):
+    def __init__(self, size, state_shape, action_shape,
+                 state_type=np.float32,
+                 action_type=np.float32):
+        super().__init__(
+            size, elements={
+                'state': (state_shape, state_type),
+                'action': (action_shape, action_type),
+                'reward': ((1,), np.float32),
+                'done': ((1,), np.uint8),
+                'state_': (state_shape, state_type)
+            }
+        )
 
 
 class ReplayBuffer_:
