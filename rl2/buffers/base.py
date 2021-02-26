@@ -3,52 +3,52 @@ from typing import List
 from collections import Iterable
 import numpy as np
 import warnings
+from collections import namedtuple
 
 
 class ReplayBuffer:
-    def __init__(self, size, s_shape, decimal=True, more={}):
-        # FIXME: Mutable default argument
-        max_size = int(size)
-        self.max_size = max_size
-        data_type = np.float32 if decimal else np.uint8
-        self.data_type = np.float32 if decimal else np.uint8
-        self.s = np.ones((max_size, *s_shape), dtype=np.uint8)
-        self.a = np.ones((max_size,), dtype=np.uint8)
-        # FIXME: AttributeError: 'ReplayBuffer' object has no attribute 'data_type'
-        # self.r = np.zeros((max_size,), dtype=self.data_type)
-        self.r = np.zeros((max_size,), dtype=data_type)
-        self.d = np.ones((max_size,), dtype=np.uint8)
-        self.s_ = np.ones((max_size, *s_shape), dtype=np.uint8)
-        self.more = more.keys()
-        for k, shape in more.items():
+    def __init__(self, size=1,
+                 elements={
+                     'state': ((4,), np.float32),
+                     'action': ((2,), np.float32),
+                     'reward': ((1,), np.float32),
+                     'done': ((1,), np.uint8),
+                     'state_p': ((4,), np.float32),
+                 }):
+        self.max_size = int(size)
+        self.keys = elements.keys()
+        self.transition = namedtuple("Transition",
+                                     ' '.join(list(self.keys)))
+        self.transition_idx = namedtuple("Transition",
+                                         ' '.join(list(self.keys)))
+        for k, shape_dtype in elements.items():
+            shape, dtype = shape_dtype
             assert type(shape) == tuple
-            setattr(self, k, np.ones((max_size, *shape), dtype=self.data_type))
+            setattr(self, k, np.ones((self.max_size, *shape), dtype=dtype))
 
         self.curr_idx = 0
         self.curr_size = 0
 
     def __getitem__(self, sample_idx):
-        return [self.s[sample_idx], self.a[sample_idx], self.r[sample_idx], self.d[sample_idx], self.s_[sample_idx]]
+        items = []
+        for key in self.keys:
+            item = getattr(self, key)[sample_idx]
+            if len(item.shape) < 2:
+                item = item.expand_dims(item, -1)
+            items.append(item)
+        return items
 
-    # def __setattr__(self, key, value):
-    #     # FIXME: 'ReplayBuffer' object has no attribute 'max_size'
-    #     try:
-    #         if self.max_size != len(value):
-    #             raise ValueError(
-    #                 f'buffer max size != {key} length, {self.max_size} != {len(value)}')
-    #     except AttributeError:
-    #         pass
-    #     object.__setattr__(self, key, value)
+    '''
+    def __setattr__(self, key, value):
+        if self.max_size != len(value):
+            raise ValueError(f'buffer max size != {key} length, '
+                             '{self.max_size} != {len(value)}')
+    '''
 
     def to_dict(self):
-        d = {
-            'state': self.s,
-            'action': self.a,
-            'reward': self.r,
-            'done': self.d,
-            'next_state': self.s_,
-        }
-
+        d = {}
+        for key in self.elements:
+            d[key] = getattr(self, key)
         return d
 
     def to_df(self):
@@ -56,83 +56,57 @@ class ReplayBuffer:
             import pandas as pd
             df = pd.DataFrame(self.to_dict(), copy=True)
             return df
-        except:
+        except ImportError:
             warnings.warn('pandas not installed')
-            pass
 
     @property
     def is_full(self):
         return (self.curr_size == self.max_size)
 
-    # def _ordered(func):
-    #     def decorator(self, *args, **kwargs):
-    #         self.curr_size = min(self.curr_size + 1, self.max_size)
-    #         self.ins_idx = self.curr_idx
-    #
-    #         result = func(self, *args, **kwargs)
-    #
-    #         self.curr_idx = (self.curr_idx + 1) % self.max_size
-    #         return result
-    #
-    #     return decorator
-    #
-    # def _random(func):
-    #     def decorator(self, *args, **kwargs):
-    #         self.curr_size = min(self.curr_size + 1, self.max_size)
-    #         if self.curr_idx >= self.max_size:
-    #             self.ins_idx = np.random.randint(self.max_size)
-    #         else:
-    #             self.ins_idx = self.curr_idx
-    #
-    #         result = func(self, *args, **kwargs)
-    #
-    #         if self.curr_idx < self.max_size:
-    #             self.curr_idx += 1
-    #         return result
-    #
-    #     return decorator
-
-    # @_ordered
-    def push(self, s, a, r, d, s_, *args, **kwargs):
+    def push(self, **kwargs):
+        for key in self.keys:
+            assert key in kwargs.keys()
+            getattr(self, key)[self.curr_idx] = kwargs[key]
         self.curr_size = min(self.curr_size + 1, self.max_size)
-        # if self.curr_idx >= self.max_size:
-        #     self.ins_idx = np.random.randint(self.max_size)
-        # else:
-        #     self.ins_idx = self.curr_idx
-
-        # insert index
-        self.ins_idx = self.curr_idx
-
-        self.s[self.ins_idx] = s
-        self.a[self.ins_idx] = a
-        self.r[self.ins_idx] = r
-        self.d[self.ins_idx] = d
-        self.s_[self.ins_idx] = s_
-
-        for key in kwargs.keys():
-            if key in self.more:
-                getattr(self, key)[self.ins_idx] = kwargs[key]
-
         self.curr_idx = (self.curr_idx + 1) % self.max_size
-        # if self.curr_idx < self.max_size:
-        #     self.curr_idx += 1
-        # return self.curr_size
 
-    def sample(self, num, idx=None) -> List[np.array]:
+    def sample(self, num, idx=None, return_idx=False) -> List[np.array]:
         if idx is None:
             sample_idx = np.random.randint(self.curr_size, size=num)
         else:
             sample_idx = idx
         samples = self[sample_idx]
-        # for key in self.more:
-        #     samples.append(getattr(self, key)[sample_idx])
-        # samples.append(sample_idx)
-        return samples
+        if return_idx:
+            samples.append(sample_idx)
+        return tuple(samples)
+        #     return self.transition_idx._make(samples)
+        # return self.transition._make(samples)
 
     def update_(self, idxs, **new_vals):
         idxs = idxs.astype(np.int32)
         for k, v in new_vals.items():
             getattr(self, k)[idxs] = v
+
+
+class ExperienceReplay(ReplayBuffer):
+    def __init__(self,
+                 size=1,
+                 state_shape=(1,),
+                 action_shape=(1,),
+                 state_type=np.float32,
+                 action_type=np.float32):
+        super().__init__(
+            size, elements={
+                'state': (state_shape, state_type),
+                'action': (action_shape, action_type),
+                'reward': ((1,), np.float32),
+                'done': ((1,), np.uint8),
+                'state_': (state_shape, state_type)
+            }
+        )
+
+    def push(self, s, a, r, d, s_):
+        super().push(state=s, action=a, reward=r, done=d, state_=s)
 
 
 class ReplayBuffer_:

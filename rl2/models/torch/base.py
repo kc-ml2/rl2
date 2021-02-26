@@ -45,6 +45,9 @@ class TorchModel(nn.Module):
         self.device = device if device else available_device
         # self.summary_writer = SummaryWriter(log_dir=save_dir)
 
+    def forward(self, *args, **kwargs):
+        raise NotImplementedError
+
     @abstractmethod
     def step(self, loss):
         """
@@ -79,7 +82,7 @@ class TorchModel(nn.Module):
                     module.bias.data.zero_()
 
     @staticmethod
-    def copy_param(source, target, alpha=0.0):
+    def polyak_update(source, target, alpha=0.0):
         for p, p_t in zip(source.parameters(), target.parameters()):
             p_t.data.copy_(alpha * p_t.data + (1 - alpha) * p.data)
 
