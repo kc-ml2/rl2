@@ -1,16 +1,16 @@
 from typing import List
-import copy
 import numpy as np
 import torch
 import torch.nn.functional as F
+from easydict import EasyDict
 from collections.abc import Iterable
 from torch.distributions import Distribution
 
+from rl2.agents.configs import DEFAULT_DDPG_CONFIG
 from rl2.agents.base import Agent
 from rl2.models.torch.base import TorchModel
 from rl2.models.torch.ddpg import DDPGModel
-from rl2.buffers import ReplayBuffer
-from rl2.networks import MLP
+from rl2.buffers import ReplayBuffer, ExperienceReplay
 
 
 def loss_func(transitions,
@@ -18,9 +18,10 @@ def loss_func(transitions,
               **kwargs) -> List[torch.tensor]:
     index = kwargs['index']
     gamma = kwargs['gamma']
-    mus, mu_trgs, acs  = [], [], []
-    s, a = None, None
+    mus, mu_trgs, acs = [], [], []
+    s = None
     for data, model in zip(transitions, models):
+        data = list(data)
         state, action, reward, done, state_ = tuple(
             map(lambda x: torch.from_numpy(x).float().to(models), data))
         if model.index != index:
@@ -66,37 +67,26 @@ class MADDPGModel(DDPGModel):
 
         super().__init__(observation_shape, action_shape, **kwargs)
 
-        if actor is None and len(observation_shape) == 1:
-            actor = MLP(in_shape=observation_shape[0],
-                        out_shape=action_shape[0])
-
-        if critic is None:
-            # FIXME: Acition_dim management
-            critic = MLP(
-                in_shape=(observation_shape[0] + joint_action_shape[0]),
-                out_shape=1)
-
-        self.mu = actor
-        self.q = critic
-
+        self.config = EasyDict(DEFAULT_DDPG_CONFIG)
+        if 'config' in kwargs.keys():
+            self.config = EasyDict(kwargs['config'])
         if optim_ac is None:
-            self.optim_ac = "torch.optim.Adam"
+            optim_ac = "torch.optim.Adam"
         if optim_cr is None:
-            self.optim_cr = "torch.optim.Adam"
+            optim_cr = "torch.optim.Adam"
 
-        self.optim_ac = self.get_optimizer_by_name(
-            modules=[self.mu], optim_name=self.optim_ac)
-        self.optim_cr = self.get_optimizer_by_name(
-            modules=[self.q], optim_name=self.optim_cr)
-
-        self.mu_trg = copy.deepcopy(self.mu)
-        self.q_trg = copy.deepcopy(self.q)
-
-        for p_mu, p_q in zip(self.mu_trg.parameters(),
-                             self.q_trg.parameters()):
-            p_mu.requires_grad = False
-            p_q.requires_grad = False
-
+        self.mu, self.optim_ac, self.mu_trg = self._make_mlp_optim_target(
+            actor,
+            observation_shape[0],
+            action_shape[0],
+            optim_ac
+        )
+        self.q, self.optim_cr, self.q_trg = self._make_mlp_optim_target(
+            critic,
+            observation_shape[0] + joint_action_shape[0],
+            1,
+            optim_cr
+        )
         self.index = index
 
     def forward(self, obs, joint_ac: Iterable) -> Distribution:
@@ -116,7 +106,7 @@ class MADDPGAgent(Agent):
                  num_epochs=1,
                  # FIXME: handle device in model class
                  device=None,
-                 buffer_cls=ReplayBuffer,
+                 buffer_cls=ExperienceReplay,
                  buffer_kwargs=None,
                  **kwargs):
 
@@ -129,7 +119,6 @@ class MADDPGAgent(Agent):
 
         self.models = []
         self.loss_func = loss_func
-        full_ac_shape = np.asarray(ac_shapes).sum()
 
         # TODO: change these to get form kwargs
         start_eps = 0.9
@@ -142,7 +131,6 @@ class MADDPGAgent(Agent):
         self.buffers = [ReplayBuffer(**buffer_kwargs) for model in self.models]
 
     def act(self, obss: List[np.array]) -> List[np.array]:
-        noise_scale = 0.1  # TODO: change this to attribute
         self.eps = self.eps_func(self.eps, self.explore_steps)
         actions = []
         for model, obs in zip(self.models, obss):

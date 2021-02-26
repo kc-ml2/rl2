@@ -9,7 +9,7 @@ import copy
 from rl2.agents.configs import DEFAULT_DDPG_CONFIG
 from rl2.agents.base import Agent
 from rl2.models.torch.base import PolicyBasedModel, TorchModel, ValueBasedModel
-from rl2.buffers.base import ReplayBuffer
+from rl2.buffers.base import ReplayBuffer, ExperienceReplay
 from rl2.networks.torch.networks import MLP
 
 # FIXME: Move loss function to somewhere else
@@ -26,9 +26,8 @@ from rl2.networks.torch.networks import MLP
 
 
 def loss_func(data, model: TorchModel, **kwargs) -> List[torch.tensor]:
+    data = list(data)
     s, a, r, d, s_ = tuple(map(lambda x: torch.from_numpy(x).float(), data))
-    # FIXME: unsqueeze in buffer.sample function; remove later
-    a, d, r = tuple(map(lambda x: x.unsqueeze(-1), (a, d, r)))
 
     a_trg = model.mu_trg(s_)
     v_trg = model.q_trg(torch.cat([s_, a_trg], dim=-1))
@@ -88,9 +87,9 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
         if network is None:
             network = MLP(in_shape=num_input, out_shape=num_output)
         optimizer = self.get_optimizer_by_name(
-            modules=network, optim_name=optim_name)
+            modules=[network], optim_name=optim_name)
         target_network = copy.deepcopy(network)
-        for param in target_network:
+        for param in target_network.parameters():
             param.requires_grad = False
 
         return network, optimizer, target_network
@@ -152,7 +151,7 @@ class DDPGAgent(Agent):
                  update_interval: int = 1,
                  train_interval: int = 1,
                  num_epochs: int = 1,
-                 buffer_cls: ReplayBuffer = ReplayBuffer,
+                 buffer_cls: ReplayBuffer = ExperienceReplay,
                  buffer_kwargs: dict = None,
                  explore: bool = True,
                  **kwargs):

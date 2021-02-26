@@ -9,7 +9,7 @@ from rl2.workers.base import EpisodicWorker, MaxStepWorker
 
 
 """
-you might want to modify 
+you might want to modify
 1. layer architecture -> just pass nn.Module to predefined models
 2. which distributions to use -> implement model from interfaces e.g. implement ActorCritic for custom PPO
 3. how to sample distributions -> customize Agent
@@ -18,8 +18,8 @@ etc...
 below example just changes 1. and some hparams
 """
 
-# env = gym.make('MountainCarContinuous-v0')
-env = gym.make('LunarLanderContinuous-v2')
+env = gym.make('MountainCarContinuous-v0')
+# env = gym.make('LunarLanderContinuous-v2')
 
 
 config = DEFAULT_DDPG_CONFIG

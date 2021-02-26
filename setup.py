@@ -12,6 +12,7 @@ setup(
         'pillow',
         'sklearn',
         'psutil',
-        'mpi4py'
+        'mpi4py',
+        'easydict'
     ]
 )

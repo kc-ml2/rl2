@@ -7,7 +7,7 @@ from collections import namedtuple
 
 
 class ReplayBuffer:
-    def __init__(self, size,
+    def __init__(self, size=1,
                  elements={
                      'state': ((4,), np.float32),
                      'action': ((2,), np.float32),
@@ -30,7 +30,13 @@ class ReplayBuffer:
         self.curr_size = 0
 
     def __getitem__(self, sample_idx):
-        return [getattr(self, key)[sample_idx] for key in self.keys]
+        items = []
+        for key in self.keys:
+            item = getattr(self, key)[sample_idx]
+            if len(item.shape) < 2:
+                item = item.expand_dims(item, -1)
+            items.append(item)
+        return items
 
     '''
     def __setattr__(self, key, value):
@@ -69,11 +75,12 @@ class ReplayBuffer:
             sample_idx = np.random.randint(self.curr_size, size=num)
         else:
             sample_idx = idx
-        samples = [self[sample_idx]]
+        samples = self[sample_idx]
         if return_idx:
             samples.append(sample_idx)
-            return self.transition_idx._make(samples)
-        return self.transition._make(samples)
+        return tuple(samples)
+        #     return self.transition_idx._make(samples)
+        # return self.transition._make(samples)
 
     def update_(self, idxs, **new_vals):
         idxs = idxs.astype(np.int32)
@@ -82,7 +89,10 @@ class ReplayBuffer:
 
 
 class ExperienceReplay(ReplayBuffer):
-    def __init__(self, size, state_shape, action_shape,
+    def __init__(self,
+                 size=1,
+                 state_shape=(1,),
+                 action_shape=(1,),
                  state_type=np.float32,
                  action_type=np.float32):
         super().__init__(
@@ -94,6 +104,9 @@ class ExperienceReplay(ReplayBuffer):
                 'state_': (state_shape, state_type)
             }
         )
+
+    def push(self, s, a, r, d, s_):
+        super().push(state=s, action=a, reward=r, done=d, state_=s)
 
 
 class ReplayBuffer_:
