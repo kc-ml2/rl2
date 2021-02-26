@@ -9,8 +9,8 @@ from torch.distributions import Distribution
 from rl2.agents.configs import DEFAULT_DDPG_CONFIG
 from rl2.agents.base import Agent
 from rl2.models.torch.base import TorchModel
-from rl2.models.torch.ddpg import DDPGModel
-from rl2.buffers import ReplayBuffer, ExperienceReplay
+from rl2.agents.ddpg import DDPGModel
+from rl2.buffers.base import ReplayBuffer, ExperienceReplay
 
 
 def loss_func(transitions,
@@ -158,5 +158,10 @@ class MADDPGAgent(Agent):
                 dones: Iterable, obss_p: Iterable):
         # Store given observations
         for i, (obs, ac, rew, done, obs_p) in enumerate(
-            zip(obss, acs, rews, dones, obss_p)):
+                zip(obss, acs, rews, dones, obss_p)):
             self.buffers[i].push(obs, ac, rew, done, obs_p)
+
+
+if __name__ == '__main__':
+    m = MADDPGModel()
+    c = MADDPGAgent()

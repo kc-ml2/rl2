@@ -82,9 +82,9 @@ class TorchModel(nn.Module):
                     module.bias.data.zero_()
 
     @staticmethod
-    def polyak_update(source, target, alpha=0.0):
+    def polyak_update(source, target, tau=0.005):
         for p, p_t in zip(source.parameters(), target.parameters()):
-            p_t.data.copy_(alpha * p_t.data + (1 - alpha) * p.data)
+            p_t.data.copy_(tau * p.data + (1 - tau) * p_t.data)
 
     @staticmethod
     def get_optimizer_by_name(modules: Iterable, optim_name: str, **optim_kwargs) -> Optimizer:

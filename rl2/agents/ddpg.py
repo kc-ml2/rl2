@@ -15,15 +15,6 @@ from rl2.networks.torch.networks import MLP
 # FIXME: Move loss function to somewhere else
 # from rl2.loss import DDPGloss
 
-# TODO: Implement Noise
-# class Noise():
-#     def __init__(self, action_shape):
-#         self.action_shape = action_shape
-
-#     def __call__(self) -> np.array:
-#         return np.random.randn(self.action_shape)
-#         # TODO: implement loss func
-
 
 def loss_func(data, model: TorchModel, **kwargs) -> List[torch.tensor]:
     data = list(data)
@@ -104,7 +95,7 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
         # TODO: Currently not using func; remove later
         obs = torch.from_numpy(obs).float()
         act = torch.from_numpy(obs).float()
-        value = self.q(torch.cat(obs, act))
+        value = self.q(torch.cat([obs, act], dim=-1))
         value.detach().cpu().numpy()
 
         return value
@@ -120,6 +111,7 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
         loss_ac, loss_cr = loss
         self.optim_ac.zero_grad()
         loss_ac.backward(retain_graph=True)
+        # TODO: grad clip decorator clip
         self.optim_ac.step()
 
         self.optim_cr.zero_grad()
@@ -127,12 +119,8 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
         self.optim_cr.step()
 
     def update_trg(self):
-        self.polyak_update(self.mu, self.mu_trg, alpha=self.config.polyak)
-        self.polyak_update(self.q, self.q_trg, alpha=self.config.polyak)
-
-    # def update_trg(self):
-    #     polyak_update(self.mu, self.mu_trg, tau=self.tau)
-    #     polyak_update(self.q, self.q_trg, tau=self.tau)
+        self.polyak_update(self.mu, self.mu_trg, tau=self.config.polyak)
+        self.polyak_update(self.q, self.q_trg, tau=self.config.polyak)
 
     def save(self):
         # torch.save(os.path.join(save_dir, 'encoder_ac.pt'))
@@ -155,8 +143,6 @@ class DDPGAgent(Agent):
                  buffer_kwargs: dict = None,
                  explore: bool = True,
                  **kwargs):
-        # TODO: process config
-        # config = kwargs['config']
         self.model = model
         self.config = self.model.config
 
@@ -171,7 +157,6 @@ class DDPGAgent(Agent):
                          buffer_cls,
                          buffer_kwargs)
         self.train_interval = train_interval
-        # TODO: change to noise func or class for eps scheduling
         self.loss_func = loss_func
         self.eps = 0.01
         self.explore = explore
@@ -180,6 +165,8 @@ class DDPGAgent(Agent):
         action = self.model.act(obs)
         if self.explore:
             action += self.eps * np.random.randn(*action.shape)
+
+        # TODO: clip
 
         return action
 
