@@ -49,7 +49,7 @@ class Agent:
         print(f'from now, {self._hook}')
         # self._hook.add_endpoint(endpoint='/act', handler=self.act)
 
-    def act(self) -> np.array:
+    def act(self) -> np.ndarray:
         """
         act returns its running env's action space shaped/typed action
         """
@@ -112,7 +112,7 @@ class MAgent:
         print(f'from now, {self._hook}')
         # self._hook.add_endpoint(endpoint='/act', handler=self.act)
 
-    def act(self) -> np.array:
+    def act(self) -> np.ndarray:
         """
         act returns its running env's action space shaped/typed action
         """

@@ -130,7 +130,7 @@ class MADDPGAgent(Agent):
         self.batch_size = kwargs.get('batch_size', 32)
         self.buffers = [ReplayBuffer(**buffer_kwargs) for model in self.models]
 
-    def act(self, obss: List[np.array]) -> List[np.array]:
+    def act(self, obss: List[np.ndarray]) -> List[np.ndarray]:
         self.eps = self.eps_func(self.eps, self.explore_steps)
         actions = []
         for model, obs in zip(self.models, obss):

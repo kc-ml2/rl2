@@ -1,5 +1,4 @@
-# TODO: remove _rl2 dependency
-from _rl2.settings import INF
+from easydict import EasyDict
 from rl2.agents.base import Agent
 
 
@@ -56,7 +55,7 @@ class RolloutWorker:
             obs = self.env.reset()
         # Update next obs
         self.obs = obs
-        info = rew
+        info = EasyDict({'rew': rew})
         results = None
 
         return done, info, results
@@ -93,20 +92,24 @@ class EpisodicWorker(RolloutWorker):
         super().__init__(env, agent, **kwargs)
         self.max_steps = int(max_steps)
         self.max_episodes = int(max_episodes)
-        self.max_steps_per_ep = int(INF) if max_steps is None else int(
-            max_steps_per_ep)
+        self.max_steps_per_ep = int(max_steps_per_ep)
+        self.num_steps_ep = 0
         self.rews = 0
         self.rews_ep = []
 
     def run(self):
         for episode in range(self.max_episodes):
-            for step in range(self.max_steps_per_ep):
+            while self.num_steps_ep < self.max_steps_per_ep:
                 done, info, results = self.rollout()
-                self.rews += info
-                if done or step == (self.max_steps-1):
+                self.rews += info.rew
+                self.num_steps_ep += 1
+                if done:
                     self.rews_ep.append(self.rews)
-                    print(
-                        f"num_ep: {self.num_episodes}, episodic_reward: {self.rews}")
+                    if self.num_episodes % 50 == 0:
+                        print(
+                            f"num_ep: {self.num_episodes}, episodic_reward: {self.rews}, buffer_size: {self.agent.buffer.curr_size}")
                     self.rews = 0
+                    self.num_steps_ep = 0
+                    break
 
         # TODO: when done do sth like logging

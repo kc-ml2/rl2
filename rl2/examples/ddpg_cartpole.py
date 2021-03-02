@@ -17,8 +17,8 @@ etc...
 
 below example just changes 1. and some hparams
 """
-env = gym.make('MountainCarContinuous-v0')
-# env = gym.make('LunarLanderContinuous-v2')
+# env = gym.make('MountainCarContinuous-v0')
+env = gym.make('LunarLanderContinuous-v2')
 
 
 config = DEFAULT_DDPG_CONFIG
@@ -34,14 +34,16 @@ if __name__ == '__main__':
 
     model = DDPGModel(observation_shape=observation_shape,
                       action_shape=action_shape)
-    agent = DDPGAgent(model)
-    worker = MaxStepWorker(env=env, agent=agent, training=True, max_steps=1e7)
-    # worker = EpisodicWorker(env=env,
-    # agent=agent,
-    # training=True,
-    # max_episodes=10,
-    # max_steps_per_ep=1e4,
-    # max_steps=1e7,
-    # render=True)
+    agent = DDPGAgent(model,
+                      action_high=env.action_space.high,
+                      action_low=env.action_space.low)
+    # worker = MaxStepWorker(env=env, agent=agent, training=True, max_steps=1e6)
+    worker = EpisodicWorker(env=env,
+                            agent=agent,
+                            training=True,
+                            max_episodes=1e4,
+                            max_steps_per_ep=1e3,
+                            max_steps=1e7,
+                            render=False)
 
     worker.run()

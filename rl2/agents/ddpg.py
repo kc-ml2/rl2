@@ -16,7 +16,7 @@ from rl2.networks.torch.networks import MLP
 # from rl2.loss import DDPGloss
 
 
-def loss_func(data, model: TorchModel, **kwargs) -> List[torch.tensor]:
+def loss_func(data, model: TorchModel, **kwargs) -> List[torch.Tensor]:
     data = list(data)
     s, a, r, d, s_ = tuple(map(lambda x: torch.from_numpy(x).float(), data))
 
@@ -85,13 +85,14 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
 
         return network, optimizer, target_network
 
-    def act(self, obs: np.array) -> np.array:
+    def act(self, obs: np.ndarray) -> np.ndarray:
         action = self.mu(torch.from_numpy(obs).float())
+        action = torch.tanh(action)
         action = action.detach().cpu().numpy()
 
         return action
 
-    def val(self, obs: np.array, act: np.array) -> np.array:
+    def val(self, obs: np.ndarray, act: np.ndarray) -> np.ndarray:
         # TODO: Currently not using func; remove later
         obs = torch.from_numpy(obs).float()
         act = torch.from_numpy(obs).float()
@@ -107,15 +108,19 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
 
         return ac_dist, val_dist
 
-    def step(self, loss: List[torch.tensor]):
+    def step(self, loss: List[torch.Tensor]):
         loss_ac, loss_cr = loss
         self.optim_ac.zero_grad()
         loss_ac.backward(retain_graph=True)
-        # TODO: grad clip decorator clip
+        # TODO: grad clip decorator clipS
+        torch.nn.utils.clip_grad_norm(
+            self.mu.parameters(), self.config.grad_clip)
         self.optim_ac.step()
 
         self.optim_cr.zero_grad()
         loss_cr.backward()
+        torch.nn.utils.clip_grad_norm(
+            self.q.parameters(), self.config.grad_clip)
         self.optim_cr.step()
 
     def update_trg(self):
@@ -142,6 +147,8 @@ class DDPGAgent(Agent):
                  buffer_cls: ReplayBuffer = ExperienceReplay,
                  buffer_kwargs: dict = None,
                  explore: bool = True,
+                 action_low: np.ndarray = None,
+                 action_high: np.ndarray = None,
                  **kwargs):
         self.model = model
         self.config = self.model.config
@@ -160,33 +167,37 @@ class DDPGAgent(Agent):
         self.loss_func = loss_func
         self.eps = 0.01
         self.explore = explore
+        self.action_low = action_low
+        self.action_high = action_high
 
-    def act(self, obs: np.array) -> np.array:
+    def act(self, obs: np.ndarray) -> np.ndarray:
         action = self.model.act(obs)
         if self.explore:
             action += self.eps * np.random.randn(*action.shape)
 
-        # TODO: clip
+        action = np.clip(action, self.action_low, self.action_high)
 
         return action
 
     def step(self, s, a, r, d, s_):
         self.collect(s, a, r, d, s_)
-        if self.curr_step % self.train_interval == 0 and self.buffer.is_full:
+        if self.curr_step % self.train_interval == 0 and self.curr_step > self.config.buffer_size:
             self.train()
-        if self.curr_step % self.update_interval == 0 and self.buffer.is_full:
+        if self.curr_step % self.update_interval == 0:
             self.model.update_trg()
 
     def train(self):
-        batch = self.buffer.sample(self.config.batch_size)
-        loss: List[Any] = self.loss_func(
-            batch, self.model, gamma=self.config.gamma)
-        self.model.step(loss)
+        for _ in range(self.config.num_epochs):
+            batch = self.buffer.sample(self.config.batch_size)
+            loss: List[Any] = self.loss_func(
+                batch, self.model, gamma=self.config.gamma)
+            self.model.step(loss)
 
         # FIXME: tmp logging; remove later
         if self.curr_step % self.config.log_interval == 0:
             log = list(map(lambda x: x.detach().cpu().numpy(), loss))
-            print(f"ac_loss: {log[0]}, cr_loss: {log[1]}")
+            print(
+                f"num_step: {self.curr_step}, ac_loss: {log[0]}, cr_loss: {log[1]}")
 
     def collect(self, s, a, r, d, s_):
         self.curr_step += 1

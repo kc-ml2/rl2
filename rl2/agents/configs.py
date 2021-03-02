@@ -41,15 +41,16 @@ DEFAULT_A2C_CONFIG = {
 
 DEFAULT_DDPG_CONFIG = {
     'num_workers': 64,
-    'buffer_size': 512,
-    'batch_size': 256,
-    'num_epochs': 4,
+    'buffer_size': int(1e4),
+    'batch_size': 512,
+    'num_epochs': 5,
     'update_interval': 1,
     'train_interval': 1,
-    'log_interval': 1000,
-    'lr_ac': 1e-3,
+    'log_interval': 5000,
+    'lr_ac': 1e-4,
     'lr_cr': 1e-4,
-    'gamma': 0.999,
+    'gamma': 0.99,
     'eps': 0.01,
-    'polyak': 0.995
+    'polyak': 0.95,
+    'grad_clip': 0.01
 }

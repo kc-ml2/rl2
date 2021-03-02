@@ -1,5 +1,5 @@
 import random
-from typing import List
+from typing import List, Tuple
 from collections import Iterable
 import numpy as np
 import warnings
@@ -70,7 +70,7 @@ class ReplayBuffer:
         self.curr_size = min(self.curr_size + 1, self.max_size)
         self.curr_idx = (self.curr_idx + 1) % self.max_size
 
-    def sample(self, num, idx=None, return_idx=False) -> List[np.array]:
+    def sample(self, num, idx=None, return_idx=False) -> Tuple[np.ndarray]:
         if idx is None:
             sample_idx = np.random.randint(self.curr_size, size=num)
         else:
@@ -106,7 +106,7 @@ class ExperienceReplay(ReplayBuffer):
         )
 
     def push(self, s, a, r, d, s_):
-        super().push(state=s, action=a, reward=r, done=d, state_=s)
+        super().push(state=s, action=a, reward=r, done=d, state_=s_)
 
 
 class ReplayBuffer_:
