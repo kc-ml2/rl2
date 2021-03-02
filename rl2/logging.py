@@ -60,6 +60,8 @@ def encode_gif(images, fps=30):
 TODO: extend builtin logger?
 
 """
+
+
 class TensorboardLogger(logging.Logger):
     TENSORBOARD = 25
 
@@ -68,7 +70,8 @@ class TensorboardLogger(logging.Logger):
 
         self.setLevel(self.log_level)
 
-        self.log_dir = os.path.join(log_dir, datetime.now().strftime("%Y%m%d%H%M%S"))
+        self.log_dir = os.path.join(
+            log_dir, datetime.now().strftime("%Y%m%d%H%M%S"))
         Path(self.log_dir).mkdir(parents=True, exist_ok=True)
 
         format = logging.Formatter(

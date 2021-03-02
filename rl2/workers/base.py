@@ -1,5 +1,6 @@
 from easydict import EasyDict
 from rl2.agents.base import Agent
+from torch.utils.tensorboard import SummaryWriter
 
 
 class RolloutWorker:
@@ -27,6 +28,8 @@ class RolloutWorker:
         # self.render_mode = render_mode
         self.num_episodes = 0
         self.num_steps = 0
+        self.writer = SummaryWriter()
+        self.agent.writer = self.writer
 
         self.obs = env.reset()
 
@@ -106,6 +109,9 @@ class EpisodicWorker(RolloutWorker):
                 if done:
                     self.rews_ep.append(self.rews)
                     if self.num_episodes % 50 == 0:
+                        self.writer.add_scalar(
+                            'Episodic/rews', self.rews, self.num_steps)
+                        self.writer.flush()
                         print(
                             f"num_ep: {self.num_episodes}, episodic_reward: {self.rews}, buffer_size: {self.agent.buffer.curr_size}")
                     self.rews = 0
