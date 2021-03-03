@@ -96,7 +96,13 @@ class MAgent:
         # self.device = device
 
         num_agents = len(models)
-        self.buffers = [buffer_cls(**buffer_kwargs) for _ in range(num_agents)]
+        self.buffers = []
+        for model in self.models:
+            self.buffers.append(buffer_cls(
+                size=buffer_kwargs['size'],
+                state_shape=model.observation_shape,
+                action_shape=model.action_shape
+            ))
         self._hook = None
 
     @property

@@ -40,16 +40,33 @@ DEFAULT_A2C_CONFIG = {
 }
 
 DEFAULT_DDPG_CONFIG = {
-    'num_workers': 64,
-    'buffer_size': 512,
-    'batch_size': 256,
-    'num_epochs': 4,
+    'num_workers': 1,
+    'buffer_size': 100000,
+    'batch_size': 32,
+    'num_epochs': 1,
     'update_interval': 1,
     'train_interval': 1,
+    'init_collect': 2000,
     'log_interval': 1000,
     'lr_ac': 1e-3,
     'lr_cr': 1e-4,
-    'gamma': 0.999,
+    'gamma': 0.99,
     'eps': 0.01,
-    'polyak': 0.995
+    'polyak': 0.99
+}
+
+DEFAULT_MADDPG_CONFIG = {
+    'num_workers': 1,
+    'buffer_size': 100000,
+    'batch_size': 512,
+    'num_epochs': 1,
+    'update_interval': 100,
+    'train_interval': 100,
+    'init_collect': 2000,
+    'log_interval': 1000,
+    'lr_ac': 1e-3,
+    'lr_cr': 1e-4,
+    'gamma': 0.95,
+    'eps': 0.01,
+    'polyak': 0.99
 }

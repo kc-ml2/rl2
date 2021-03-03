@@ -1,6 +1,7 @@
 from typing import Any, List
-import torch
 import numpy as np
+import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from easydict import EasyDict
 from torch.distributions import Distribution
@@ -27,21 +28,46 @@ from rl2.networks.torch.networks import MLP
 
 def loss_func(data, model: TorchModel, **kwargs) -> List[torch.tensor]:
     data = list(data)
-    s, a, r, d, s_ = tuple(map(lambda x: torch.from_numpy(x).float(), data))
+    s, a, r, d, s_ = tuple(map(lambda x: torch.from_numpy(x).float().to(model.device), data))
+    if model.enc is not None:
+        s = model.enc(s)
+        s_ = model.enc(s_)
 
-    a_trg = model.mu_trg(s_)
-    v_trg = model.q_trg(torch.cat([s_, a_trg], dim=-1))
-    bellman_trg = r + kwargs['gamma'] * v_trg * (1-d)
+    with torch.no_grad():
+        a_trg = model.mu_trg(s_)
+        q_trg = model.q_trg(torch.cat([s_, a_trg], dim=-1))
+        bellman_trg = r + kwargs['gamma'] * v_trg * (1-d)
 
     q_cr = model.q(torch.cat([s, a], dim=-1))
     l_cr = F.smooth_l1_loss(q_cr, bellman_trg)
 
+    mu = model.mu(s)
+    if model.discrete:
+        mu = torch.gumbel_softmax(mu, tau=1, hard=False)
     q_ac = model.q(torch.cat([s, model.mu(s)], dim=-1))
     l_ac = -q_ac.mean()
 
     loss = [l_ac, l_cr]
 
     return loss
+
+
+class DummyEncoder(nn.Module):
+    def __init__(self, net, reorder, flatten):
+        super().__init__()
+        self.net = net
+        self.reorder = reorder
+        self.flatten = flatten
+
+    def forward(self, obs):
+        if self.net is not None:
+            if self.reorder:
+                obs = obs.permute(0, 3, 1, 2)
+            obs = self.net(obs)
+        elif self.flatten:
+            obs = obs.view(obs.shape[0], -1)
+        return obs
+
 
 
 class DDPGModel(PolicyBasedModel, ValueBasedModel):
@@ -55,8 +81,13 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
                  action_shape,
                  actor: torch.nn.Module = None,
                  critic: torch.nn.Module = None,
+                 encoder: torch.nn.Module = None,
+                 encoder_dim : int = None,
                  optim_ac: str = None,
                  optim_cr: str = None,
+                 discrete: bool = False,
+                 flatten: bool = False,
+                 reorder: bool = False,
                  **kwargs):
 
         super().__init__(observation_shape, action_shape, **kwargs)
@@ -69,66 +100,92 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
         if optim_cr is None:
             optim_cr = "torch.optim.Adam"
 
+        obs_dim = observation_shape[0]
+        self.enc = DummyEncoder(encoder, reorder, flatten).to(self.device)
+        self.discrete = discrete
+        if len(observation_shape) == 3:
+            assert encoder is not None, 'Must provide an encoder for 2d input'
+            assert encoder_dim is not None
+
+            self.optim_enc, self.enc_trg = self._make_optim_target(
+                self.enc, optim_ac
+            )
+            obs_dim = encoder_dim
         self.mu, self.optim_ac, self.mu_trg = self._make_mlp_optim_target(
-            actor,
-            observation_shape[0],
-            action_shape[0],
-            optim_ac
+            actor, obs_dim, action_shape[0], optim_ac
         )
         self.q, self.optim_cr, self.q_trg = self._make_mlp_optim_target(
-            critic,
-            observation_shape[0] + action_shape[0],
-            1,
-            optim_cr
+            critic, obs_dim + action_shape[0], 1, optim_cr
         )
+        self.mu, self.q = self.mu.to(self.device), self.q.to(self.device)
+        self.mu_trg, self.q_trg = self.mu_trg.to(self.device), self.q_trg.to(self.device)
+        self.enc_trg = self.enc_trg.to(self.device)
 
     def _make_mlp_optim_target(self, network,
                                num_input, num_output, optim_name):
         if network is None:
             network = MLP(in_shape=num_input, out_shape=num_output)
+        optimizer, target_network = self._make_optim_target(network,
+                                                            optim_name)
+        return network, optimizer, target_network
+
+    def _make_optim_target(self, network, optim_name):
         optimizer = self.get_optimizer_by_name(
             modules=[network], optim_name=optim_name)
         target_network = copy.deepcopy(network)
         for param in target_network.parameters():
             param.requires_grad = False
 
-        return network, optimizer, target_network
+        return optimizer, target_network
 
     def act(self, obs: np.array) -> np.array:
-        action = self.mu(torch.from_numpy(obs).float())
+        obs = torch.from_numpy(obs).float().to(self.device)
+        obs = self.enc(obs)
+        action = self.mu(obs)
+        if self.discrete:
+            action = F.softmax(action, dim=-1)
         action = action.detach().cpu().numpy()
-
         return action
 
     def val(self, obs: np.array, act: np.array) -> np.array:
         # TODO: Currently not using func; remove later
-        obs = torch.from_numpy(obs).float()
+        obs = torch.form_numpy(obs).float().to(self.device)
+        obs = self.enc(obs)
         act = torch.from_numpy(obs).float()
         value = self.q(torch.cat(obs, act))
-        value.detach().cpu().numpy()
+        value = value.detach().cpu().numpy()
 
         return value
 
     def forward(self, obs) -> Distribution:
+        obs = obs.to(self.device)
+        obs = self.enc(obs)
         ac_dist = self.mu(obs)
-        act = ac_dist.mean
+        # act = ac_dist.mean
         val_dist = self.q(obs, act)
 
         return ac_dist, val_dist
 
-    def step(self, loss: List[torch.tensor]):
-        loss_ac, loss_cr = loss
+    def step_ac(self, loss_ac: torch.tensor):
+        if self.enc.net is not None:
+            self.optim_enc.zero_grad()
         self.optim_ac.zero_grad()
-        loss_ac.backward(retain_graph=True)
+        loss_ac.backward()
         self.optim_ac.step()
+        if self.enc.net is not None:
+            self.optim_enc.step()
 
+    def step_cr(self, loss_cr: torch.tensor):
         self.optim_cr.zero_grad()
-        loss_cr.backward()
+        loss_cr.backward(retain_graph=True)
         self.optim_cr.step()
 
     def update_trg(self):
         self.polyak_update(self.mu, self.mu_trg, alpha=self.config.polyak)
         self.polyak_update(self.q, self.q_trg, alpha=self.config.polyak)
+        if self.enc.net is not None:
+            self.polyak_update(self.enc, self.enc_trg,
+                               alpha=self.config.polyak)
 
     # def update_trg(self):
     #     polyak_update(self.mu, self.mu_trg, tau=self.tau)
@@ -157,19 +214,20 @@ class DDPGAgent(Agent):
                  **kwargs):
         # TODO: process config
         # config = kwargs['config']
-        self.model = model
-        self.config = self.model.config
+        self.config = EasyDict(DEFAULT_DDPG_CONFIG)
+        if 'config' in kwargs.keys():
+            self.config = EasyDict(kwargs['config'])
 
         if buffer_kwargs is None:
-            buffer_kwargs = {'size': self.config.buffer_size,
-                             'state_shape': self.model.observation_shape,
-                             'action_shape': self.model.action_shape}
+            buffer_kwargs = {'size': self.config.buffer_size}
 
         super().__init__(model,
                          update_interval,
                          num_epochs,
                          buffer_cls,
                          buffer_kwargs)
+
+        self.model = model
         self.train_interval = train_interval
         # TODO: change to noise func or class for eps scheduling
         self.loss_func = loss_func
@@ -177,9 +235,20 @@ class DDPGAgent(Agent):
         self.explore = explore
 
     def act(self, obs: np.array) -> np.array:
+        if len(obs.shape) in (1, 3):
+            np.expand_dims(obs, axis=0)
         action = self.model.act(obs)
-        if self.explore:
-            action += self.eps * np.random.randn(*action.shape)
+        if self.model.discrete:
+            if self.explore:
+                _action = []
+                for ac in action:
+                    _action.append(numpy.random.choice(np.arange(len(ac)), p=ac))
+                action = np.array(_action)
+            else:
+                action = np.max(action, axis=-1)
+        else:
+            if self.explore:
+                action += self.eps * np.random.randn(*action.shape)
 
         return action
 
