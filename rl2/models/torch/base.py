@@ -1,4 +1,5 @@
 import importlib
+from types import FunctionType
 from typing import Any, Iterable, T_co
 from abc import abstractmethod
 import itertools
@@ -94,6 +95,14 @@ class TorchModel(nn.Module):
         optimizer = getattr(mod, pkg)(itertools.chain(*params), **optim_kwargs)
 
         return optimizer
+
+    @staticmethod
+    def get_loss_fn_by_name(loss_fn_name: str, **kwarg) -> FunctionType:
+        src = torch.functional
+        fn = loss_fn_name
+        loss_fn = getattr(src, fn)
+
+        return loss_fn
 
 
 class PolicyBasedModel(TorchModel):
