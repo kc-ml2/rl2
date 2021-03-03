@@ -3,54 +3,88 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 from easydict import EasyDict
+import collections
 from collections.abc import Iterable
 from torch.distributions import Distribution
 
-from rl2.agents.configs import DEFAULT_DDPG_CONFIG
-from rl2.agents.base import Agent
+from rl2.agents.configs import DEFAULT_MADDPG_CONFIG
+from rl2.agents.base import Agent, MAgent
+from rl2.agents.ddpg import DDPGModel
 from rl2.models.torch.base import TorchModel
 from rl2.agents.ddpg import DDPGModel
 from rl2.buffers.base import ReplayBuffer, ExperienceReplay
 
+import time
 
-def loss_func(transitions,
+
+def loss_func_ac(transitions,
               models: TorchModel,
               **kwargs) -> List[torch.tensor]:
     index = kwargs['index']
     gamma = kwargs['gamma']
-    mus, mu_trgs, acs = [], [], []
+    mus = []
     s = None
     for data, model in zip(transitions, models):
         data = list(data)
-        state, action, reward, done, state_ = tuple(
-            map(lambda x: torch.from_numpy(x).float().to(models), data))
+        obs, action, reward, done, obs_ = tuple(
+            map(lambda x: torch.from_numpy(x).float().to(model.device), data))
+        if model.enc is not None:
+            state = model.enc(obs)
+        else:
+            state = obs
         if model.index != index:
             with torch.no_grad():
                 mu = model.mu(state)
-                mu_trg = model.mu_trg(state_)
+                if model.discrete:
+                    mu = F.gumbel_softmax(mu, tau=1, hard=False, dim=-1)
         else:
             mu = model.mu(state)
-            mu_trg = model.mu_trg(state_)
+            if model.discrete:
+                mu = F.gumbel_softmax(mu, tau=1, hard=False, dim=-1)
             s = state
         mus.append(mu)
+
+    mus = torch.cat(mus, dim=-1)
+    q_ac = models[index].q(torch.cat([s, mus], dim=-1))
+
+    l_ac = -q_ac.mean()
+
+    return l_ac
+
+def loss_func_cr(transitions,
+              models: TorchModel,
+              **kwargs) -> List[torch.tensor]:
+    index = kwargs['index']
+    gamma = kwargs['gamma']
+    mu_trgs, acs = [], []
+    s = None
+    for data, model in zip(transitions, models):
+        data = list(data)
+        obs, action, reward, done, obs_ = tuple(
+            map(lambda x: torch.from_numpy(x).float().to(model.device), data))
+        if model.enc is not None:
+            state = model.enc(obs)
+            state_ = model.enc_trg(obs_)
+        else:
+            state = obs
+        if model.index == index:
+            s = state
+        with torch.no_grad():
+            mu_trg = model.mu_trg(state_)
         mu_trgs.append(mu_trg)
         acs.append(action)
 
-    mus = torch.cat(mus, dim=-1)
     mu_trgs = torch.cat(mu_trgs, dim=-1)
     acs = torch.cat(acs, dim=-1)
 
-    q_trg = models[index].q_trg(torch.cat([state_, mu_trgs], dim=-1))
-    bellman_trg = reward + gamma * (1 - done) * q_trg
-    q_ac = models[index].q(torch.cat([s, mus], dim=-1))
+    with torch.no_grad():
+        q_trg = models[index].q_trg(torch.cat([state_, mu_trgs], dim=-1))
+        bellman_trg = reward + gamma * (1 - done) * q_trg
     q_cr = models[index].q(torch.cat([s, acs], dim=-1))
 
-    l_ac = -q_ac.mean()
     l_cr = F.smooth_l1_loss(q_cr, bellman_trg)
 
-    loss = [l_ac, l_cr]
-
-    return loss
+    return l_cr
 
 
 class MADDPGModel(DDPGModel):
@@ -61,48 +95,52 @@ class MADDPGModel(DDPGModel):
                  index,
                  actor: torch.nn.Module = None,
                  critic: torch.nn.Module = None,
+                 encoder: torch.nn.Module = None,
+                 encoder_dim : int = None,
                  optim_ac: str = None,
                  optim_cr: str = None,
+                 discrete: bool = False,
+                 flatten: bool = False,
+                 reorder: bool = False,
                  **kwargs):
 
-        super().__init__(observation_shape, action_shape, **kwargs)
+        super().__init__(observation_shape, action_shape,
+                         encoder=encoder, encoder_dim=encoder_dim,
+                         discrete=discrete, flatten=flatten, reorder=reorder,
+                         config=DEFAULT_MADDPG_CONFIG, **kwargs)
 
-        self.config = EasyDict(DEFAULT_DDPG_CONFIG)
-        if 'config' in kwargs.keys():
-            self.config = EasyDict(kwargs['config'])
-        if optim_ac is None:
-            optim_ac = "torch.optim.Adam"
+        obs_dim = observation_shape[0]
+        if len(observation_shape) == 3:
+            obs_dim = encoder_dim
         if optim_cr is None:
             optim_cr = "torch.optim.Adam"
-
-        self.mu, self.optim_ac, self.mu_trg = self._make_mlp_optim_target(
-            actor,
-            observation_shape[0],
-            action_shape[0],
-            optim_ac
-        )
         self.q, self.optim_cr, self.q_trg = self._make_mlp_optim_target(
             critic,
-            observation_shape[0] + joint_action_shape[0],
+            obs_dim + joint_action_shape[0],
             1,
             optim_cr
         )
+        self.q = self.q.to(self.device)
+        self.q_trg = self.q_trg.to(self.device)
         self.index = index
 
     def forward(self, obs, joint_ac: Iterable) -> Distribution:
-        ac_dist = self.mu(obs)
-        act = ac_dist.mean
+        obs = obs.to(self.device)
+        state = self.enc(obs)
+        ac_dist = self.mu(state)
+        # act = ac_dist.mean
         joint_ac[self.index] = act
         joint_act = torch.cat(joint_ac, dim=-1)
-        val_dist = self.q(obs, joint_act)
+        val_dist = self.q(state, joint_act)
 
         return ac_dist, val_dist
 
 
-class MADDPGAgent(Agent):
+class MADDPGAgent(MAgent):
     def __init__(self,
-                 models: List[DDPGModel],
+                 models: List[MADDPGModel],
                  update_interval=1,
+                 train_interval=1,
                  num_epochs=1,
                  # FIXME: handle device in model class
                  device=None,
@@ -110,15 +148,18 @@ class MADDPGAgent(Agent):
                  buffer_kwargs=None,
                  **kwargs):
 
-        # config = kwargs['config']
-
+        self.config = EasyDict(DEFAULT_MADDPG_CONFIG)
+        if 'config' in kwargs.keys():
+            self.config = EasyDict(kwargs['config'])
         if buffer_kwargs is None:
-            buffer_kwargs = {'size': 10}
+            buffer_kwargs = {'size': self.config.buffer_size}
 
-        super().__init__(**kwargs)
+        super().__init__(models, update_interval, num_epochs,
+                         buffer_cls,
+                         buffer_kwargs)
 
-        self.models = []
-        self.loss_func = loss_func
+        self.loss_func_ac = loss_func_ac
+        self.loss_func_cr = loss_func_cr
 
         # TODO: change these to get form kwargs
         start_eps = 0.9
@@ -126,33 +167,84 @@ class MADDPGAgent(Agent):
         self.eps = start_eps
         self.eps_func = lambda x, y: max(end_eps, x - start_eps / y)
         self.explore_steps = 1e5
+        self.curr_step = 0.0
 
-        self.batch_size = kwargs.get('batch_size', 32)
-        self.buffers = [ReplayBuffer(**buffer_kwargs) for model in self.models]
+        self.train_interval = self.config.get('train_interval', 1)
+        self.batch_size = self.config.get('batch_size', 32)
+        self.init_collect = self.config.get('init_collect', 2000)
+        self.gamma = self.config.get('gamma', 0.99)
+
+        # Temporary logging variables
+        self.log_step = self.config.get('log_interval', 1000)
+        self.mean_rew = collections.deque(maxlen=100)
+        self.loss_cr = 0.0
+        self.loss_ac = 0.0
+        self.epi_score = 0.0
 
     def act(self, obss: List[np.ndarray]) -> List[np.ndarray]:
         self.eps = self.eps_func(self.eps, self.explore_steps)
         actions = []
         for model, obs in zip(self.models, obss):
+            if len(obs.shape) in (1, 3):
+                obs = np.expand_dims(obs, axis=0)
             action = model.act(obs)
-            noise = self.eps * np.random.randn_like(action)
-            actions.append(action + noise)
+            if model.discrete:
+                if np.random.random() < self.eps:
+                    _action = []
+                    for ac in action:
+                        num_actions = model.action_shape[0]
+                        _action.append(
+                            np.random.choice(np.arange(num_actions), p=ac))
+                    action = np.array(_action).item()
+                else:
+                    action = np.argmax(action, axis=-1).item()
+            else:
+                action += self.eps * np.random.randn(*action.shape)
+            actions.append(action)
 
         return actions
+
+    def step(self, s, a, r, d, s_):
+        start_time = time.time()
+        self.collect(s, a, r, d, s_)
+        collect_time = time.time() - start_time
+        self.epi_score += sum(r)
+        if all(d):
+            self.mean_rew.append(self.epi_score)
+            self.epi_score = 0.0
+
+        start_train = self.curr_step > self.init_collect
+        if self.curr_step % self.train_interval == 0 and start_train:
+            for _ in range(self.config.num_epochs):
+                self.train()
+        train_time = time.time() - collect_time - start_time
+        if self.curr_step % self.update_interval == 0 and start_train:
+            for model in self.models:
+                model.update_trg()
+        update_time = time.time() - train_time - collect_time - start_time
+        if self.curr_step % self.log_step == 0 and start_train:
+            print(self.curr_step, sum(list(self.mean_rew)),
+                  self.loss_ac, self.loss_cr)
+        self.curr_step += 1
+        print(self.curr_step, collect_time, train_time, update_time)
 
     def train(self):
         losses = []
         for i, model in enumerate(self.models):
             # TODO: get the buffer size
-            main_transition = self.buffer[i].sample(self.batch_size,
-                                                    return_idx=True)
-            transitions = [buffer[i].sample(self.batch_size,
-                                            idx=main_transition.idx)
-                           for buffer in self.buffer]
-            transitions.insert(i, main_transition)
-            loss = self.loss_func(transitions, self.models)
-        for model, loss in zip(self.models, losses):
-            model.step(loss)
+            sample_idx = np.random.randint(self.buffers[i].curr_size,
+                                           size=self.batch_size)
+            transitions = [buffer.sample(self.batch_size, idx=sample_idx)
+                           for buffer in self.buffers]
+            # transitions.insert(i, main_transition)
+            loss_cr = self.loss_func_cr(transitions, self.models, index=i,
+                                        gamma=self.gamma)
+            model.step_cr(loss_cr)
+            self.loss_cr = loss_cr.item()
+            loss_ac = self.loss_func_ac(transitions, self.models, index=i,
+                                        gamma=self.gamma)
+            model.step_ac(loss_ac)
+            self.loss_ac = loss_ac.item()
 
     def collect(self, obss: Iterable, acs: Iterable, rews: Iterable,
                 dones: Iterable, obss_p: Iterable):

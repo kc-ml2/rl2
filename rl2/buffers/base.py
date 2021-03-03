@@ -34,7 +34,7 @@ class ReplayBuffer:
         for key in self.keys:
             item = getattr(self, key)[sample_idx]
             if len(item.shape) < 2:
-                item = item.expand_dims(item, -1)
+                item = np.expand_dims(item, axis=-1)
             items.append(item)
         return items
 

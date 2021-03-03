@@ -46,6 +46,7 @@ DEFAULT_DDPG_CONFIG = {
     'num_epochs': 1,
     'update_interval': 1,
     'train_interval': 1,
+    'init_collect': 2000,
     'log_interval': 1000,
     'log_interval_ep': 10,
     'optim_ac': 'torch.optim.Adam',  # 'RMSprop'
@@ -57,4 +58,20 @@ DEFAULT_DDPG_CONFIG = {
     'polyak': 0.99,
     'grad_clip': 0.01,
     'loss_fn': 'mse_loss'  # 'smoothl1loss'
+}
+
+DEFAULT_MADDPG_CONFIG = {
+    'num_workers': 1,
+    'buffer_size': 100000,
+    'batch_size': 512,
+    'num_epochs': 1,
+    'update_interval': 100,
+    'train_interval': 100,
+    'init_collect': 2000,
+    'log_interval': 1000,
+    'lr_ac': 1e-3,
+    'lr_cr': 1e-4,
+    'gamma': 0.95,
+    'eps': 0.01,
+    'polyak': 0.99
 }
