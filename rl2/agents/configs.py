@@ -47,8 +47,9 @@ DEFAULT_DDPG_CONFIG = {
     'update_interval': 1,
     'train_interval': 1,
     'log_interval': 1000,
-    'optim_ac': 'Adam',  # 'RMSprop'
-    'optim_cr': 'Adam',
+    'log_interval_ep': 10,
+    'optim_ac': 'torch.optim.Adam',  # 'RMSprop'
+    'optim_cr': 'torch.optim.Adam',
     'lr_ac': 1e-4,
     'lr_cr': 1e-3,
     'gamma': 0.99,

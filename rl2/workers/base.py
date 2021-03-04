@@ -1,3 +1,4 @@
+from typing import Optional
 from easydict import EasyDict
 from rl2.agents.base import Agent
 from torch.utils.tensorboard import SummaryWriter
@@ -28,8 +29,6 @@ class RolloutWorker:
         # self.render_mode = render_mode
         self.num_episodes = 0
         self.num_steps = 0
-        self.writer = SummaryWriter()
-        self.agent.writer = self.writer
 
         self.obs = env.reset()
 
@@ -43,7 +42,8 @@ class RolloutWorker:
         ac = self.agent.act(self.obs)
         obs, rew, done, info = self.env.step(ac)
         if self.training:
-            self.agent.step(self.obs, ac, rew, done, obs)
+            info_a = self.agent.step(self.obs, ac, rew, done, obs)
+            info = {**info, **info_a}
             # task_list = self.agent.dispatch()
             # if len(task_list) > 0:
             #     results = {bound_method.__name__: bound_method() for bound_method in task_list}
@@ -58,7 +58,7 @@ class RolloutWorker:
             obs = self.env.reset()
         # Update next obs
         self.obs = obs
-        info = EasyDict({'rew': rew})
+        info = {**info, **{'rew': rew}}
         results = None
 
         return done, info, results
@@ -88,34 +88,35 @@ class EpisodicWorker(RolloutWorker):
     """
 
     def __init__(self, env, agent,
-                 max_steps: int = None,
                  max_episodes: int = 10,
                  max_steps_per_ep: int = 1e4,
+                 log_interval: int = 1000,
+                 logger=None,
+                 config=None,
                  **kwargs):
         super().__init__(env, agent, **kwargs)
-        self.max_steps = int(max_steps)
         self.max_episodes = int(max_episodes)
         self.max_steps_per_ep = int(max_steps_per_ep)
+        self.log_interval = log_interval
         self.num_steps_ep = 0
         self.rews = 0
-        self.rews_ep = []
+        self.logger = logger
+        self.config = config
 
     def run(self):
         for episode in range(self.max_episodes):
             while self.num_steps_ep < self.max_steps_per_ep:
                 done, info, results = self.rollout()
-                self.rews += info.rew
+                self.rews += info['rew']
                 self.num_steps_ep += 1
                 if done:
-                    self.rews_ep.append(self.rews)
-                    if self.num_episodes % 50 == 0:
-                        self.writer.add_scalar(
-                            'Episodic/rews', self.rews, self.num_steps)
-                        self.writer.flush()
-                        print(
-                            f"num_ep: {self.num_episodes}, episodic_reward: {self.rews}, buffer_size: {self.agent.buffer.curr_size}")
+                    info_r = {
+                        'Episodic/rews': self.rews
+                    }
+                    info.update(info_r)
+                    info.pop('rew')
+                    if self.num_episodes % self.log_interval == 0:
+                        self.logger.scalar_summary(info, self.num_steps)
                     self.rews = 0
                     self.num_steps_ep = 0
                     break
-
-        # TODO: when done do sth like logging

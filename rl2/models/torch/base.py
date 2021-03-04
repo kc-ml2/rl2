@@ -9,6 +9,7 @@ import torch
 from torch import nn
 from torch.distributions import Distribution
 from torch.optim import Optimizer
+import torch.nn.functional as F
 from torch.utils.tensorboard import SummaryWriter
 
 """
@@ -37,7 +38,7 @@ class TorchModel(nn.Module):
         super().__init__()
         self.observation_shape = observation_shape
         self.action_shape = action_shape
-        self.save = False
+        self.is_save = False
         if save_dir is not None:
             self.save = True
             self.save_dir = save_dir
@@ -98,7 +99,7 @@ class TorchModel(nn.Module):
 
     @staticmethod
     def get_loss_fn_by_name(loss_fn_name: str, **kwarg) -> FunctionType:
-        src = torch.functional
+        src = F
         fn = loss_fn_name
         loss_fn = getattr(src, fn)
 

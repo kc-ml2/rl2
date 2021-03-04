@@ -1,44 +1,20 @@
-from typing import Any, Callable, List
-import torch
-import numpy as np
-import torch.nn.functional as F
-from easydict import EasyDict
-from torch.distributions import Distribution
 import copy
+import os
+from pathlib import Path
+from typing import Callable
 
-from rl2.agents.configs import DEFAULT_DDPG_CONFIG
+import numpy as np
+import torch
+import torch.nn.functional as F
+from torch.distributions import Distribution
 from rl2.agents.base import Agent
-from rl2.models.torch.base import PolicyBasedModel, TorchModel, ValueBasedModel
-from rl2.buffers.base import ReplayBuffer, ExperienceReplay
+from rl2.buffers.base import ExperienceReplay, ReplayBuffer
+from rl2.models.torch.base import PolicyBasedModel, ValueBasedModel
 from rl2.networks.torch.networks import MLP
-
-# FIXME: Move loss function to somewhere else
-# from rl2.loss import DDPGloss
-
-
-# def loss_func(data, model: TorchModel, **kwargs) -> List[torch.Tensor]:
-#     data = list(data)
-#     s, a, r, d, s_ = tuple(map(lambda x: torch.from_numpy(x).float(), data))
-
-#     a_trg = model.mu_trg(s_)
-#     v_trg = model.q_trg(torch.cat([s_, a_trg], dim=-1))
-#     bellman_trg = r + kwargs['gamma'] * v_trg * (1-d)
-
-#     q_cr = model.q(torch.cat([s, a], dim=-1))
-#     l_cr = F.mse_loss(q_cr, bellman_trg)
-#     # l_cr = F.smooth_l1_loss(q_cr, bellman_trg)
-
-#     q_ac = model.q(torch.cat([s, model.mu(s)], dim=-1))
-#     l_ac = -q_ac.mean()
-
-#     loss = [l_ac, l_cr]
-
-#     return loss
 
 
 def loss_func_ac(data, model, **kwargs):
-    data = list(data)
-    s, a, r, d, s_ = tuple(map(lambda x: torch.from_numpy(x).float(), data))
+    s = torch.from_numpy(data[0]).float()
     q_val = model.q(torch.cat([s, torch.tanh(model.mu(s))], dim=-1))
     loss = -q_val.mean()
 
@@ -68,33 +44,41 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
                  action_shape,
                  actor: torch.nn.Module = None,
                  critic: torch.nn.Module = None,
-                 optim_ac: str = None,
-                 optim_cr: str = None,
+                 optim_ac: str = 'torch.optim.Adam',
+                 optim_cr: str = 'torch.optim.Adam',
+                 lr_ac: float = 1e-4,
+                 lr_cr: float = 1e-4,
+                 grad_clip: float = 1e-2,
+                 polyak: float = 0.995,
                  **kwargs):
 
         super().__init__(observation_shape, action_shape, **kwargs)
 
-        self.config = EasyDict(DEFAULT_DDPG_CONFIG)
-        if 'config' in kwargs.keys():
-            self.config = EasyDict(kwargs['config'])
         if optim_ac is None:
-            optim_ac = self.config.optim_ac
+            optim_ac = self.optim_ac
         if optim_cr is None:
-            optim_cr = self.config.optim_cr
+            optim_cr = self.optim_cr
+
+        self.grad_clip = grad_clip
+
+        self.lr_ac = lr_ac
+        self.lr_cr = lr_cr
+        self.polyak = polyak
+        self.is_save = kwargs['is_save']
 
         self.mu, self.optim_ac, self.mu_trg = self._make_mlp_optim_target(
             actor,
             observation_shape[0],
             action_shape[0],
             optim_ac,
-            lr=self.config.lr_ac
+            lr=self.lr_ac
         )
         self.q, self.optim_cr, self.q_trg = self._make_mlp_optim_target(
             critic,
             observation_shape[0] + action_shape[0],
             1,
             optim_cr,
-            lr=self.config.lr_cr
+            lr=self.lr_cr
         )
 
     def _make_mlp_optim_target(self, network,
@@ -125,52 +109,50 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
 
         return value
 
-    # def forward(self, obs) -> Distribution:
-    #     ac_dist = self.mu(obs)
-    #     act = ac_dist.mean
-    #     val_dist = self.q(obs, act)
+    def forward(self, obs) -> Distribution:
+        action = self.act(obs)
+        value = self.val(obs, action)
 
-    #     return ac_dist, val_dist
+        return action, value
 
-    def step(self, data, loss_func: List[Callable]):
-        loss_func_ac, loss_func_cr = loss_func
+    def step_cr(self, loss: torch.Tensor):
         self.optim_cr.zero_grad()
-        loss_cr = loss_func_cr(data, self, gamma=self.config.gamma)
-        loss_cr.backward()
+        loss.backward()
         torch.nn.utils.clip_grad_norm_(
-            self.mu.parameters(), self.config.grad_clip)
+            self.mu.parameters(), self.grad_clip)
         self.optim_cr.step()
 
         # Freeze Q-network
         for p in self.q.parameters():
             p.requires_grad = False
 
+    def step_ac(self, loss: torch.Tensor):
         self.optim_ac.zero_grad()
-        loss_ac = loss_func_ac(data, self)
-        loss_ac.backward()
+        loss.backward()
         torch.nn.utils.clip_grad_norm_(
-            self.mu.parameters(), self.config.grad_clip)
+            self.mu.parameters(), self.grad_clip)
         self.optim_ac.step()
 
         # Unfreeze Q-network
         for p in self.q.parameters():
             p.requires_grad = True
 
-        return loss_ac, loss_cr
-
     def update_trg(self):
-        self.polyak_update(self.mu, self.mu_trg, self.config.polyak)
-        self.polyak_update(self.q, self.q_trg, self.config.polyak)
+        self.polyak_update(self.mu, self.mu_trg, self.polyak)
+        self.polyak_update(self.q, self.q_trg, self.polyak)
 
-    def save(self):
-        # torch.save(os.path.join(save_dir, 'encoder_ac.pt'))
-        # torch.save(os.path.join(save_dir, 'encoder_cr.pt'))
-        # torch.save(os.path.join(save_dir, 'actor.pt'))
-        # torch.save(os.path.join(save_dir, 'critic.pt'))
-        pass
+    def save(self, save_dir):
+        torch.save(self.mu.state_dict(), os.path.join(save_dir, 'actor.pt'))
+        torch.save(self.q.state_dict(), os.path.join(save_dir, 'critic.pt'))
+        print(f'model saved in {save_dir}')
 
-    def load(self):
-        pass
+    def load(self, load_dir):
+        ckpt = torch.load(
+            load_dir,
+            map_location=self.device
+        )
+        self.model.mu.load_state_dict(ckpt)
+        self.model.q.load_state_dict(ckpt)
 
 
 class DDPGAgent(Agent):
@@ -180,18 +162,30 @@ class DDPGAgent(Agent):
                  train_interval: int = 1,
                  num_epochs: int = 1,
                  buffer_cls: ReplayBuffer = ExperienceReplay,
+                 buffer_size: int = int(1e6),
                  buffer_kwargs: dict = None,
+                 batch_size: int = 128,
                  explore: bool = True,
                  action_low: np.ndarray = None,
                  action_high: np.ndarray = None,
-                 loss_func_ac: Callable = None,
-                 loss_func_cr: Callable = None,
+                 loss_func_ac: Callable = loss_func_ac,
+                 loss_func_cr: Callable = loss_func_cr,
+                 save_interval: int = int(1e5),
+                 eps: float = 1e-5,
+                 gamma: float = 0.99,
+                 log_interval: int = int(1e3),
+                 train_after: int = int(1e3),
+                 update_after: int = int(1e3),
                  **kwargs):
         self.model = model
-        self.config = self.model.config
-
+        self.save_interval = save_interval
+        self.buffer_size = buffer_size
+        if loss_func_cr is None:
+            self.loss_func_cr = loss_func_cr
+        if loss_func_ac is None:
+            self.loss_func_ac = loss_func_ac
         if buffer_kwargs is None:
-            buffer_kwargs = {'size': self.config.buffer_size,
+            buffer_kwargs = {'size': self.buffer_size,
                              'state_shape': self.model.observation_shape,
                              'action_shape': self.model.action_shape}
 
@@ -200,16 +194,20 @@ class DDPGAgent(Agent):
                          num_epochs,
                          buffer_cls,
                          buffer_kwargs)
+        self.batch_size = batch_size
         self.train_interval = train_interval
-        self.eps = self.config.eps
+        self.eps = eps
         self.explore = explore
         self.action_low = action_low
         self.action_high = action_high
-
-        if loss_func_ac is None:
-            self.loss_func_ac = loss_func_ac
-        if loss_func_cr is None:
-            self.loss_func_cr = loss_func_cr
+        self.loss_func_ac = loss_func_ac
+        self.loss_func_cr = loss_func_cr
+        self.gamma = gamma
+        self.log_interval = log_interval
+        self.logger = kwargs['logger']
+        self.log_dir = self.logger.log_dir
+        self.train_after = train_after
+        self.update_after = update_after
 
     def act(self, obs: np.ndarray) -> np.ndarray:
         action = self.model.act(obs)
@@ -222,33 +220,34 @@ class DDPGAgent(Agent):
 
     def step(self, s, a, r, d, s_):
         self.collect(s, a, r, d, s_)
-        if self.curr_step % self.train_interval == 0 and self.curr_step > self.config.batch_size:
-            self.train()
-        if self.curr_step % self.update_interval == 0 and self.curr_step > self.config.batch_size:
+        info = {}
+        if self.curr_step % self.train_interval == 0 and self.curr_step > self.train_after:
+            info = self.train()
+        if self.curr_step % self.update_interval == 0 and self.curr_step > self.update_after:
             self.model.update_trg()
-        if self.curr_step % self.save_intercal == 0:
-            self.model.save()
+        if self.curr_step % self.save_interval == 0 and self.model.is_save:
+            save_dir = os.path.join(
+                self.log_dir, f'ckpt/{int(self.curr_step/1000)}k')
+            Path(save_dir).mkdir(parents=True, exist_ok=True)
+            self.model.save(save_dir)
+
+        return info
 
     def train(self):
-        for _ in range(self.config.num_epochs):
-            batch = self.buffer.sample(self.config.batch_size)
-            loss_func = [self.loss_func_ac, self.loss_func_cr]
-            cl = self.loss_func_cr(batch)
-            info = self.model.step_cr(cl)
+        for _ in range(self.num_epochs):
+            batch = self.buffer.sample(self.batch_size)
+            cl = self.loss_func_cr(batch, self.model, gamma=self.gamma)
+            self.model.step_cr(cl)
 
-            al = self.loss_func_ac(batch)
-            info = self.model.step_ac(al)
+            al = self.loss_func_ac(batch, self.model)
+            self.model.step_ac(al)
 
-            # info = self.model.step(batch, loss_func)
+        info = {
+            'Loss/Actor': al.item(),
+            'Loss/Critic': cl.item()
+        }
 
-        # FIXME: tmp logging; remove later
-        if self.curr_step % self.config.log_interval == 0:
-            log = list(map(lambda x: x.detach().cpu().numpy(), info))
-            self.writer.add_scalar('Loss/Actor', log[0], self.curr_step)
-            self.writer.add_scalar('Loss/Critic', log[1], self.curr_step)
-            self.writer.flush()
-            print(
-                f"num_step: {self.curr_step}, ac_loss: {log[0]}, cr_loss: {log[1]}")
+        return info
 
     def collect(self, s, a, r, d, s_):
         self.curr_step += 1
