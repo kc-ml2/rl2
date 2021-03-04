@@ -5,7 +5,7 @@ import torch
 from torch import nn
 
 from rl2.agents.maddpg import MADDPGAgent, MADDPGModel
-from rl2.agents.configs import DEFAULT_DDPG_CONFIG
+from rl2.agents.configs import DEFAULT_MADDPG_CONFIG
 from rl2.workers.multi_agent import SelfMaxStepWorker
 
 
@@ -19,9 +19,16 @@ etc...
 below example just changes 1. and some hparams
 """
 
-env = gym.make('Snake-v1')
+custom_rew = {
+    'fruit': 10.0,
+    'kill': 0.0,
+    'lose': -10.0,
+    'win': 0.0,
+    'time':0.0,
+}
+env = gym.make('Snake-v1', height=10, width=10, reward_dict=custom_rew)
 
-config = DEFAULT_DDPG_CONFIG
+config = DEFAULT_MADDPG_CONFIG
 
 myconfig = {
     # TODO: Example config
@@ -31,7 +38,7 @@ class Encoder(nn.Module):
     def __init__(self, obs_shape, out_shape):
         super().__init__()
         self.body = nn.Sequential(
-            nn.Conv2d(8, 32, 3, padding=1),
+            nn.Conv2d(6, 32, 3, padding=1),
             nn.ReLU(),
             nn.MaxPool2d(2, stride=2),
             nn.Conv2d(32, 16, 3, padding=1),
@@ -61,7 +68,7 @@ if __name__ == '__main__':
     for i, (obs_shape, ac_shape) in enumerate(zip(observation_shape, action_shape)):
         model = MADDPGModel(obs_shape, ac_shape, joint_action_shape, i,
                             encoder=Encoder(obs_shape, 64), encoder_dim=64,
-                            reorder=True, discrete=True, device='cpu')
+                            reorder=True, discrete=True, device='cuda')
         models.append(model)
     agent = MADDPGAgent(models, config=config)
     observation_shape = env.observation_space.shape

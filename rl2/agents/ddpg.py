@@ -31,12 +31,12 @@ def loss_func(data, model: TorchModel, **kwargs) -> List[torch.tensor]:
     s, a, r, d, s_ = tuple(map(lambda x: torch.from_numpy(x).float().to(model.device), data))
     if model.enc is not None:
         s = model.enc(s)
-        s_ = model.enc(s_)
+        s_ = model.enc_trg(s_)
 
     with torch.no_grad():
         a_trg = model.mu_trg(s_)
         q_trg = model.q_trg(torch.cat([s_, a_trg], dim=-1))
-        bellman_trg = r + kwargs['gamma'] * v_trg * (1-d)
+        bellman_trg = r + kwargs['gamma'] * q_trg * (1-d)
 
     q_cr = model.q(torch.cat([s, a], dim=-1))
     l_cr = F.smooth_l1_loss(q_cr, bellman_trg)
@@ -124,12 +124,14 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
     def _make_mlp_optim_target(self, network,
                                num_input, num_output, optim_name):
         if network is None:
-            network = MLP(in_shape=num_input, out_shape=num_output)
+            network = MLP(in_shape=num_input, out_shape=num_output,
+                          hidden=[128, 128])
         optimizer, target_network = self._make_optim_target(network,
                                                             optim_name)
         return network, optimizer, target_network
 
     def _make_optim_target(self, network, optim_name):
+        self.init_params(network)
         optimizer = self.get_optimizer_by_name(
             modules=[network], optim_name=optim_name)
         target_network = copy.deepcopy(network)
@@ -162,23 +164,23 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
         obs = self.enc(obs)
         ac_dist = self.mu(obs)
         # act = ac_dist.mean
-        val_dist = self.q(obs, act)
+        val_dist = self.q(obs, ac_dist)
 
         return ac_dist, val_dist
 
-    def step_ac(self, loss_ac: torch.tensor):
+    def step_cr(self, loss_cr: torch.tensor):
         if self.enc.net is not None:
             self.optim_enc.zero_grad()
+        self.optim_cr.zero_grad()
+        loss_cr.backward(retain_graph=True)
+        self.optim_cr.step()
+
+    def step_ac(self, loss_ac: torch.tensor):
         self.optim_ac.zero_grad()
         loss_ac.backward()
         self.optim_ac.step()
         if self.enc.net is not None:
             self.optim_enc.step()
-
-    def step_cr(self, loss_cr: torch.tensor):
-        self.optim_cr.zero_grad()
-        loss_cr.backward(retain_graph=True)
-        self.optim_cr.step()
 
     def update_trg(self):
         self.polyak_update(self.mu, self.mu_trg, alpha=self.config.polyak)
