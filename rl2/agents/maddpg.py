@@ -36,11 +36,12 @@ def loss_func_ac(transitions,
             with torch.no_grad():
                 mu = model.mu(state)
                 if model.discrete:
-                    mu = F.gumbel_softmax(mu, tau=1, hard=False, dim=-1)
+                    mu = F.gumbel_softmax(mu, tau=1, hard=True, dim=-1)
+                    # mu = F.softmax(mu, dim=-1)
         else:
             mu = model.mu(state)
             if model.discrete:
-                mu = F.gumbel_softmax(mu, tau=1, hard=False, dim=-1)
+                mu = F.gumbel_softmax(mu, tau=1, hard=True, dim=-1)
             s = state
         mus.append(mu)
 
@@ -71,6 +72,7 @@ def loss_func_cr(transitions,
             s = state
         with torch.no_grad():
             mu_trg = model.mu_trg(state_)
+            mu_trg = F.gumbel_softmax(mu_trg, tau=1, hard=True, dim=-1)
         mu_trgs.append(mu_trg)
         acs.append(action)
 
@@ -82,7 +84,8 @@ def loss_func_cr(transitions,
         bellman_trg = reward + gamma * (1 - done) * q_trg
     q_cr = models[index].q(torch.cat([s, acs], dim=-1))
 
-    l_cr = F.smooth_l1_loss(q_cr, bellman_trg)
+    # l_cr = F.smooth_l1_loss(q_cr, bellman_trg)
+    l_cr = F.mse_loss(q_cr, bellman_trg)
 
     return l_cr
 
@@ -129,7 +132,7 @@ class MADDPGModel(DDPGModel):
         state = self.enc(obs)
         ac_dist = self.mu(state)
         # act = ac_dist.mean
-        joint_ac[self.index] = act
+        joint_ac[self.index] = ac_dist
         joint_act = torch.cat(joint_ac, dim=-1)
         val_dist = self.q(state, joint_act)
 
@@ -194,7 +197,7 @@ class MADDPGAgent(MAgent):
                     for ac in action:
                         num_actions = model.action_shape[0]
                         _action.append(
-                            np.random.choice(np.arange(num_actions), p=ac))
+                            np.random.randint(num_actions))
                     action = np.array(_action).item()
                 else:
                     action = np.argmax(action, axis=-1).item()
@@ -205,9 +208,12 @@ class MADDPGAgent(MAgent):
         return actions
 
     def step(self, s, a, r, d, s_):
-        start_time = time.time()
+        if self.models[0].discrete:
+            a_onehot = []
+            for i, _a in enumerate(a):
+                a_onehot.append(np.eye(self.models[i].action_shape[0])[_a])
+            a = a_onehot
         self.collect(s, a, r, d, s_)
-        collect_time = time.time() - start_time
         self.epi_score += sum(r)
         if all(d):
             self.mean_rew.append(self.epi_score)
@@ -217,16 +223,16 @@ class MADDPGAgent(MAgent):
         if self.curr_step % self.train_interval == 0 and start_train:
             for _ in range(self.config.num_epochs):
                 self.train()
-        train_time = time.time() - collect_time - start_time
         if self.curr_step % self.update_interval == 0 and start_train:
             for model in self.models:
                 model.update_trg()
-        update_time = time.time() - train_time - collect_time - start_time
+
         if self.curr_step % self.log_step == 0 and start_train:
-            print(self.curr_step, sum(list(self.mean_rew)),
+            curr_time = time.strftime('[%Y-%m-%d %I:%M:%S %p]', time.localtime())
+            print(curr_time,
+                  self.curr_step, sum(list(self.mean_rew)) / len(list(self.mean_rew)),
                   self.loss_ac, self.loss_cr)
         self.curr_step += 1
-        print(self.curr_step, collect_time, train_time, update_time)
 
     def train(self):
         losses = []

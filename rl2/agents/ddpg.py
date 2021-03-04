@@ -28,7 +28,7 @@ def loss_func_cr(data, model, **kwargs):
     )
     if model.enc is not None:
         s = model.enc(s)
-        s_ = model.enc(s_)
+        s_ = model.enc_trg(s_)
 
     with torch.no_grad():
         a_trg = model.mu_trg(s_)
@@ -127,12 +127,14 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
     def _make_mlp_optim_target(self, network,
                                num_input, num_output, optim_name, **kwargs):
         if network is None:
-            network = MLP(in_shape=num_input, out_shape=num_output)
+            network = MLP(in_shape=num_input, out_shape=num_output,
+                          hidden=[128, 128])
         optimizer, target_network = self._make_optim_target(network,
                                                             optim_name)
         return network, optimizer, target_network
 
     def _make_optim_target(self, network, optim_name, **kwargs):
+        self.init_params(network)
         optimizer = self.get_optimizer_by_name(
             modules=[network], optim_name=optim_name, lr=kwargs['lr'])
         target_network = copy.deepcopy(network)
@@ -189,7 +191,6 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
         loss_cr.backward(retain_graph=True)
         torch.nn.utils.clip_grad_norm_(
             self.mu.parameters(), self.grad_clip)
-        self.optim_cr.step()
         self.optim_cr.step()
 
     def update_trg(self):
