@@ -1,5 +1,7 @@
 import csv
 from torch.utils.tensorboard import SummaryWriter
+import torch
+import torch.nn as nn
 from termcolor import colored
 import logging
 import traceback
@@ -7,6 +9,8 @@ from datetime import datetime
 from pathlib import Path
 import sys
 import gym
+import marlenv
+from marlenv.wrappers import SingleAgent
 import os
 from easydict import EasyDict
 from rl2.agents.configs import DEFAULT_DDPG_CONFIG
@@ -149,12 +153,21 @@ class Logger:
         return s[:20] + '...' if len(s) > 23 else s
 
 
-# env = gym.make('MountainCarContinuous-v0')
-env = gym.make('LunarLanderContinuous-v2')
+env = gym.make('Snake-v1', num_snakes=1)
+env = marlenv.wrappers.SingleAgent(env)
 
+# check Continuous or Discrete
+if 'Discrete' in str(type(env.action_space)):
+    action_n = env.action_space.n
 
+if 'Box' in str(type(env.action_space)):
+    action_low = env.action_space.low
+    action_high = env.action_space.high
+
+# Use Default config
 config = DEFAULT_DDPG_CONFIG
 
+# Or Customize your config
 myconfig = {
     'num_workers': 64,
     'buffer_size': int(1e5),
@@ -179,6 +192,31 @@ myconfig = {
 
 config = EasyDict(myconfig)
 
+
+class Encoder(nn.Module):
+    def __init__(self, obs_shape, out_shape):
+        super().__init__()
+        self.body = nn.Sequential(
+            nn.Conv2d(6, 16, 3, padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(2, stride=2),
+            nn.Conv2d(16, 32, 3, padding=1),
+            nn.ReLU(),
+            nn.MaxPool2d(2, stride=2)
+        )
+        dummy = torch.zeros(1, obs_shape[-1], *obs_shape[:-1])
+        with torch.no_grad():
+            ir_shape = self.body(dummy).flatten().shape[-1]
+        self.head = nn.Linear(ir_shape, out_shape)
+
+    def forward(self, x):
+        x = x / 255.
+        ir = self.body(x)
+        ir = ir.flatten(start_dim=1)
+        ir = torch.tanh(self.head(ir))
+        return ir
+
+
 # writer = SummaryWriter()
 if __name__ == '__main__':
     logger = Logger(name='DEFAULT', args=config)
@@ -190,17 +228,20 @@ if __name__ == '__main__':
 
     model = DDPGModel(observation_shape=observation_shape,
                       action_shape=action_shape,
+                      encoder=Encoder(observation_shape, 64),
+                      encoder_dim=64,
                       optim_ac=config.optim_ac,
                       optim_cr=config.optim_cr,
                       lr_ac=config.lr_ac,
                       lr_cr=config.lr_cr,
                       grad_clip=config.grad_clip,
                       polyak=config.polyak,
+                      reorder=True,
+                      discrete=True,
                       is_save=True)
 
     agent = DDPGAgent(model,
-                      action_low=env.action_space.low,
-                      action_high=env.action_space.high,
+                      action_n=action_n,
                       update_interval=config.update_interval,
                       train_interval=config.train_interval,
                       num_epochs=config.num_epochs,

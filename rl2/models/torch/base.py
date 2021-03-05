@@ -7,10 +7,8 @@ import itertools
 import numpy as np
 import torch
 from torch import nn
-from torch.distributions import Distribution
 from torch.optim import Optimizer
 import torch.nn.functional as F
-from torch.utils.tensorboard import SummaryWriter
 
 """
 interface that can handle most of the recent algorithms. (PG, Qlearning)

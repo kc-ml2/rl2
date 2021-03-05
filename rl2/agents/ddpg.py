@@ -300,21 +300,22 @@ class DDPGAgent(Agent):
 
     def act(self, obs: np.ndarray) -> np.ndarray:
         if len(obs.shape) in (1, 3):
-            np.expand_dims(obs, axis=0)
+            obs = np.expand_dims(obs, axis=0)
         action = self.model.act(obs)
         if self.model.discrete:
             if self.explore:
                 _action = []
                 for ac in action:
-                    _action.append(np.random.choice(np.arange(len(ac)), p=ac))
-                action = np.array(_action)
+                    _action.append(np.random.randint(
+                        self.model.action_shape[0]))
+                action = np.array(_action).item()
             else:
                 action = np.max(action, axis=-1)
         else:
             if self.explore:
                 action += self.eps * np.random.randn(*action.shape)
-
-        action = np.clip(action, self.action_low, self.action_high)
+        if not self.model.discrete:
+            action = np.clip(action, self.action_low, self.action_high)
 
         return action
 
