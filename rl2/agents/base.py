@@ -33,7 +33,11 @@ class Agent:
         self.num_epochs = num_epochs
         # self.device = device
 
-        self.buffer = buffer_cls(**buffer_kwargs)
+        self.buffer = buffer_cls(
+                size=buffer_kwargs['size'],
+                state_shape=model.observation_shape,
+                action_shape=model.action_shape
+        )
         self._hook = None
 
     @property

@@ -17,3 +17,4 @@ checkpoints/
 experiments/*/
 .idea
 .DS_Store
+runs/

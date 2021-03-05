@@ -149,8 +149,8 @@ class Logger:
         return s[:20] + '...' if len(s) > 23 else s
 
 
-# env = gym.make('MountainCarContinuous-v0')
-env = gym.make('LunarLanderContinuous-v2')
+env = gym.make('MountainCarContinuous-v0')
+# env = gym.make('LunarLanderContinuous-v2')
 
 
 config = DEFAULT_DDPG_CONFIG

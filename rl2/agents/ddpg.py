@@ -15,8 +15,13 @@ from rl2.networks.torch.networks import MLP
 
 
 def loss_func_ac(data, model, **kwargs):
-    s = torch.from_numpy(data[0]).float()
-    q_val = model.q(torch.cat([s, torch.tanh(model.mu(s))], dim=-1))
+    s = torch.from_numpy(data[0]).float().to(model.device)
+    if model.enc_ac is not None:
+        s_ac = model.enc_ac(s)
+        s_cr = model.enc_cr(s)
+    else:
+        s_ac = s_cr = s
+    q_val = model.q(torch.cat([s_cr, torch.tanh(model.mu(s_ac))], dim=-1))
     loss = -q_val.mean()
 
     return loss
@@ -26,22 +31,23 @@ def loss_func_cr(data, model, **kwargs):
     s, a, r, d, s_ = tuple(
         map(lambda x: torch.from_numpy(x).float().to(model.device), data)
     )
-    if model.enc is not None:
-        s_ac = model.enc_ac(s)
+    if model.enc_cr is not None:
         s_cr = model.enc_cr(s)
         s_ac_ = model.enc_ac_trg(s_)
         s_cr_ = model.enc_cr_trg(s_)
+    else:
+        s_ac_ = s_cr_ = s_
 
     with torch.no_grad():
-        a_trg = model.mu_trg(s_)
+        a_trg = model.mu_trg(s_ac_)
         if model.discrete:
             a_trg = F.gumbel_softmax(a_trg, tau=1., hard=True)
         else:
             a_trg = torch.tanh(a_trg)
-        v_trg = model.q_trg(torch.cat([s_, a_trg], dim=-1))
+        v_trg = model.q_trg(torch.cat([s_cr_, a_trg], dim=-1))
         bellman_trg = r + kwargs['gamma'] * v_trg * (1-d)
 
-    q = model.q(torch.cat([s, a], dim=-1))
+    q = model.q(torch.cat([s_cr, a], dim=-1))
     loss = F.smooth_l1_loss(q, bellman_trg)
 
     return loss
@@ -105,6 +111,8 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
         obs_dim = observation_shape[0]
         self.enc_ac = DummyEncoder(encoder, reorder, flatten).to(self.device)
         self.enc_cr = DummyEncoder(encoder, reorder, flatten).to(self.device)
+        self.enc_ac_trg = copy.deepcopy(self.enc_ac)
+        self.enc_cr_trg = copy.deepcopy(self.enc_cr)
         self.discrete = discrete
         if len(observation_shape) == 3:
             assert encoder is not None, 'Must provide an encoder for 2d input'
@@ -117,10 +125,9 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
                 self.enc_cr, optim_cr
             )
             obs_dim = encoder_dim
-            self.enc_ac = self.enc_ac.to(self.device)
-            self.enc_cr = self.enc_cr.to(self.device)
-            self.enc_ac_trg = self.enc_ac_trg.to(self.device)
-            self.enc_cr_trg = self.enc_cr_trg.to(self.device)
+            self.enc_ac, self.enc_cr, self.enc_ac_trg, self.enc_cr_trg = map(
+                lambda x: x.to(self.device),
+                self.enc_ac, self.enc_cr, self.enc_ac_trg, self.enc_cr_trg)
         self.mu, self.optim_ac, self.mu_trg = self._make_mlp_optim_target(
             actor, obs_dim, action_shape[0], optim_ac, lr=self.lr_ac
         )
@@ -131,8 +138,9 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
             lambda x: x.to(self.device),
             [self.mu, self.mu_trg, self.q, self.q_trg]
         )
-        self.mu, self.q = self.mu.to(self.device), self.q.to(self.device)
-        self.mu_trg, self.q_trg = self.mu_trg.to(self.device), self.q_trg.to(self.device)
+        self.mu, self.q, self.mu_trg, self.q_trg = map(
+            lambda x: x.to(self.device),
+            [self.mu, self.q, self.mu_trg, self.q_trg])
 
     def _make_mlp_optim_target(self, network,
                                num_input, num_output, optim_name, **kwargs):
@@ -140,7 +148,8 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
             network = MLP(in_shape=num_input, out_shape=num_output,
                           hidden=[128, 128])
         optimizer, target_network = self._make_optim_target(network,
-                                                            optim_name)
+                                                            optim_name,
+                                                            **kwargs)
         return network, optimizer, target_network
 
     def _make_optim_target(self, network, optim_name, **kwargs):
@@ -180,10 +189,9 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
         state_cr = self.enc_cr(obs)
         action = self.mu(state_ac)
         # act = ac_dist.mean
-        value = self.q(state_cr, ac_dist)
+        value = self.q(state_cr, action)
 
-        return action, ValueBasedModel
-
+        return action, value
 
     def step_ac(self, loss_ac: torch.tensor):
         if self.enc_ac.net is not None:
