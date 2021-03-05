@@ -160,6 +160,10 @@ class MADDPGAgent(MAgent):
         self.config = EasyDict(DEFAULT_MADDPG_CONFIG)
         if 'config' in kwargs.keys():
             self.config = EasyDict(kwargs['config'])
+        self.init_collect = self.config.get('init_collect', 1000)
+        self.train_interval = self.config.get('train_interval', train_interval)
+        self.batch_size = self.config.get('batch_size', 32)
+        self.gamma = self.config.get('batch_size', 0.99)
         if buffer_kwargs is None:
             buffer_kwargs = {'size': self.config.buffer_size}
 
@@ -184,6 +188,7 @@ class MADDPGAgent(MAgent):
         self.loss_cr = 0.0
         self.loss_ac = 0.0
         self.epi_score = 0.0
+
 
     def act(self, obss: List[np.ndarray]) -> List[np.ndarray]:
         self.eps = self.eps_func(self.eps, self.explore_steps)

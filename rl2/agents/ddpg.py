@@ -106,7 +106,7 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
         self.lr_ac = lr_ac
         self.lr_cr = lr_cr
         self.polyak = polyak
-        self.is_save = kwargs['is_save']
+        self.is_save = kwargs.get('is_save', False)
 
         obs_dim = observation_shape[0]
         self.enc_ac = DummyEncoder(encoder, reorder, flatten).to(self.device)
@@ -127,7 +127,7 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
             obs_dim = encoder_dim
             self.enc_ac, self.enc_cr, self.enc_ac_trg, self.enc_cr_trg = map(
                 lambda x: x.to(self.device),
-                self.enc_ac, self.enc_cr, self.enc_ac_trg, self.enc_cr_trg)
+                [self.enc_ac, self.enc_cr, self.enc_ac_trg, self.enc_cr_trg])
         self.mu, self.optim_ac, self.mu_trg = self._make_mlp_optim_target(
             actor, obs_dim, action_shape[0], optim_ac, lr=self.lr_ac
         )
@@ -144,18 +144,19 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
 
     def _make_mlp_optim_target(self, network,
                                num_input, num_output, optim_name, **kwargs):
+        lr = kwargs.get('lr', 1e-4)  # Form a optim args elsewhere
         if network is None:
             network = MLP(in_shape=num_input, out_shape=num_output,
                           hidden=[128, 128])
         optimizer, target_network = self._make_optim_target(network,
                                                             optim_name,
-                                                            **kwargs)
+                                                            lr=lr)
         return network, optimizer, target_network
 
-    def _make_optim_target(self, network, optim_name, **kwargs):
+    def _make_optim_target(self, network, optim_name, **optim_args):
         self.init_params(network)
         optimizer = self.get_optimizer_by_name(
-            modules=[network], optim_name=optim_name, lr=kwargs['lr'])
+            modules=[network], optim_name=optim_name, **optim_args)
         target_network = copy.deepcopy(network)
         for param in target_network.parameters():
             param.requires_grad = False
@@ -274,7 +275,7 @@ class DDPGAgent(Agent):
 
         self.buffer_size = buffer_size
         if buffer_kwargs is None:
-            buffer_kwargs = {'size': self.config.buffer_size}
+            buffer_kwargs = {'size': self.buffer_size}
 
         super().__init__(model,
                          update_interval,
@@ -282,8 +283,8 @@ class DDPGAgent(Agent):
                          buffer_cls,
                          buffer_kwargs)
 
-        self.model = model
         self.train_interval = train_interval
+        self.batch_size = batch_size
         self.eps = eps
         self.explore = explore
         self.action_low = action_low
