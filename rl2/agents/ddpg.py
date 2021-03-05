@@ -30,21 +30,23 @@ def loss_func(data, model: TorchModel, **kwargs) -> List[torch.tensor]:
     data = list(data)
     s, a, r, d, s_ = tuple(map(lambda x: torch.from_numpy(x).float().to(model.device), data))
     if model.enc is not None:
-        s = model.enc(s)
-        s_ = model.enc_trg(s_)
+        s_ac = model.enc_ac(s)
+        s_cr = model.enc_cr(s)
+        s_ac_ = model.enc_ac_trg(s_)
+        s_cr_ = model.enc_cr_trg(s_)
 
     with torch.no_grad():
-        a_trg = model.mu_trg(s_)
-        q_trg = model.q_trg(torch.cat([s_, a_trg], dim=-1))
+        a_trg = model.mu_trg(s_ac_)
+        q_trg = model.q_trg(torch.cat([s_cr_, a_trg], dim=-1))
         bellman_trg = r + kwargs['gamma'] * q_trg * (1-d)
 
-    q_cr = model.q(torch.cat([s, a], dim=-1))
+    q_cr = model.q(torch.cat([s_cr, a], dim=-1))
     l_cr = F.smooth_l1_loss(q_cr, bellman_trg)
 
     mu = model.mu(s)
     if model.discrete:
         mu = torch.gumbel_softmax(mu, tau=1, hard=False)
-    q_ac = model.q(torch.cat([s, model.mu(s)], dim=-1))
+    q_ac = model.q(torch.cat([s_cr, model.mu(s_ac)], dim=-1))
     l_ac = -q_ac.mean()
 
     loss = [l_ac, l_cr]
@@ -69,7 +71,6 @@ class DummyEncoder(nn.Module):
         return obs
 
 
-
 class DDPGModel(PolicyBasedModel, ValueBasedModel):
     """
     predefined model
@@ -82,7 +83,7 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
                  actor: torch.nn.Module = None,
                  critic: torch.nn.Module = None,
                  encoder: torch.nn.Module = None,
-                 encoder_dim : int = None,
+                 encoder_dim: int = None,
                  optim_ac: str = None,
                  optim_cr: str = None,
                  discrete: bool = False,
@@ -101,16 +102,24 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
             optim_cr = "torch.optim.Adam"
 
         obs_dim = observation_shape[0]
-        self.enc = DummyEncoder(encoder, reorder, flatten).to(self.device)
+        self.enc_ac = DummyEncoder(encoder, reorder, flatten).to(self.device)
+        self.enc_cr = DummyEncoder(encoder, reorder, flatten).to(self.device)
         self.discrete = discrete
         if len(observation_shape) == 3:
             assert encoder is not None, 'Must provide an encoder for 2d input'
             assert encoder_dim is not None
 
-            self.optim_enc, self.enc_trg = self._make_optim_target(
-                self.enc, optim_ac
+            self.optim_enc_ac, self.enc_ac_trg = self._make_optim_target(
+                self.enc_ac, optim_ac
+            )
+            self.optim_enc_cr, self.enc_cr_trg = self._make_optim_target(
+                self.enc_cr, optim_cr
             )
             obs_dim = encoder_dim
+            self.enc_ac = self.enc_ac.to(self.device)
+            self.enc_cr = self.enc_cr.to(self.device)
+            self.enc_ac_trg = self.enc_ac_trg.to(self.device)
+            self.enc_cr_trg = self.enc_cr_trg.to(self.device)
         self.mu, self.optim_ac, self.mu_trg = self._make_mlp_optim_target(
             actor, obs_dim, action_shape[0], optim_ac
         )
@@ -119,7 +128,6 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
         )
         self.mu, self.q = self.mu.to(self.device), self.q.to(self.device)
         self.mu_trg, self.q_trg = self.mu_trg.to(self.device), self.q_trg.to(self.device)
-        self.enc_trg = self.enc_trg.to(self.device)
 
     def _make_mlp_optim_target(self, network,
                                num_input, num_output, optim_name):
@@ -142,7 +150,7 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
 
     def act(self, obs: np.array) -> np.array:
         obs = torch.from_numpy(obs).float().to(self.device)
-        obs = self.enc(obs)
+        obs = self.enc_ac(obs)
         action = self.mu(obs)
         if self.discrete:
             action = F.softmax(action, dim=-1)
@@ -152,7 +160,7 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
     def val(self, obs: np.array, act: np.array) -> np.array:
         # TODO: Currently not using func; remove later
         obs = torch.form_numpy(obs).float().to(self.device)
-        obs = self.enc(obs)
+        obs = self.enc_cr(obs)
         act = torch.from_numpy(obs).float()
         value = self.q(torch.cat(obs, act))
         value = value.detach().cpu().numpy()
@@ -161,32 +169,39 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
 
     def forward(self, obs) -> Distribution:
         obs = obs.to(self.device)
-        obs = self.enc(obs)
-        ac_dist = self.mu(obs)
+        state_ac = self.enc_ac(obs)
+        state_cr = self.enc_cr(obs)
+        ac_dist = self.mu(state_ac)
         # act = ac_dist.mean
-        val_dist = self.q(obs, ac_dist)
+        val_dist = self.q(state_cr, ac_dist)
 
         return ac_dist, val_dist
 
     def step_cr(self, loss_cr: torch.tensor):
-        if self.enc.net is not None:
-            self.optim_enc.zero_grad()
+        if self.enc_cr.net is not None:
+            self.optim_enc_cr.zero_grad()
         self.optim_cr.zero_grad()
-        loss_cr.backward(retain_graph=True)
+        loss_cr.backward()
         self.optim_cr.step()
+        if self.enc_cr.net is not None:
+            self.optim_enc_cr.step()
 
     def step_ac(self, loss_ac: torch.tensor):
+        if self.enc_ac.net is not None:
+            self.optim_enc_ac.zero_grad()
         self.optim_ac.zero_grad()
         loss_ac.backward()
         self.optim_ac.step()
-        if self.enc.net is not None:
-            self.optim_enc.step()
+        if self.enc_ac.net is not None:
+            self.optim_enc_ac.step()
 
     def update_trg(self):
         self.polyak_update(self.mu, self.mu_trg, alpha=self.config.polyak)
         self.polyak_update(self.q, self.q_trg, alpha=self.config.polyak)
-        if self.enc.net is not None:
-            self.polyak_update(self.enc, self.enc_trg,
+        if self.enc_ac.net is not None and self.enc_cr.net is not None:
+            self.polyak_update(self.enc_ac, self.enc_ac_trg,
+                               alpha=self.config.polyak)
+            self.polyak_update(self.enc_cr, self.enc_cr_trg,
                                alpha=self.config.polyak)
 
     # def update_trg(self):
@@ -244,7 +259,7 @@ class DDPGAgent(Agent):
             if self.explore:
                 _action = []
                 for ac in action:
-                    _action.append(numpy.random.choice(np.arange(len(ac)), p=ac))
+                    _action.append(np.random.choice(np.arange(len(ac)), p=ac))
                 action = np.array(_action)
             else:
                 action = np.max(action, axis=-1)
