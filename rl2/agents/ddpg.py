@@ -27,8 +27,10 @@ def loss_func_cr(data, model, **kwargs):
         map(lambda x: torch.from_numpy(x).float().to(model.device), data)
     )
     if model.enc is not None:
-        s = model.enc(s)
-        s_ = model.enc_trg(s_)
+        s_ac = model.enc_ac(s)
+        s_cr = model.enc_cr(s)
+        s_ac_ = model.enc_ac_trg(s_)
+        s_cr_ = model.enc_cr_trg(s_)
 
     with torch.no_grad():
         a_trg = model.mu_trg(s_)
@@ -101,18 +103,24 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
         self.is_save = kwargs['is_save']
 
         obs_dim = observation_shape[0]
-        self.enc = DummyEncoder(encoder, reorder, flatten).to(self.device)
+        self.enc_ac = DummyEncoder(encoder, reorder, flatten).to(self.device)
+        self.enc_cr = DummyEncoder(encoder, reorder, flatten).to(self.device)
         self.discrete = discrete
         if len(observation_shape) == 3:
             assert encoder is not None, 'Must provide an encoder for 2d input'
             assert encoder_dim is not None
 
-            self.optim_enc, self.enc_trg = self._make_optim_target(
-                self.enc, optim_ac
+            self.optim_enc_ac, self.enc_ac_trg = self._make_optim_target(
+                self.enc_ac, optim_ac
+            )
+            self.optim_enc_cr, self.enc_cr_trg = self._make_optim_target(
+                self.enc_cr, optim_cr
             )
             obs_dim = encoder_dim
-            self.enc = self.enc.to(self.device)
-            self.enc_trg = self.enc_trg.to(self.device)
+            self.enc_ac = self.enc_ac.to(self.device)
+            self.enc_cr = self.enc_cr.to(self.device)
+            self.enc_ac_trg = self.enc_ac_trg.to(self.device)
+            self.enc_cr_trg = self.enc_cr_trg.to(self.device)
         self.mu, self.optim_ac, self.mu_trg = self._make_mlp_optim_target(
             actor, obs_dim, action_shape[0], optim_ac, lr=self.lr_ac
         )
@@ -123,6 +131,8 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
             lambda x: x.to(self.device),
             [self.mu, self.mu_trg, self.q, self.q_trg]
         )
+        self.mu, self.q = self.mu.to(self.device), self.q.to(self.device)
+        self.mu_trg, self.q_trg = self.mu_trg.to(self.device), self.q_trg.to(self.device)
 
     def _make_mlp_optim_target(self, network,
                                num_input, num_output, optim_name, **kwargs):
@@ -145,7 +155,7 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
 
     def act(self, obs: np.array) -> np.ndarray:
         obs = torch.from_numpy(obs).float().to(self.device)
-        obs = self.enc(obs)
+        obs = self.enc_ac(obs)
         action = self.mu(obs)
         if self.discrete:
             action = F.softmax(action, dim=-1)
@@ -157,7 +167,7 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
     def val(self, obs: np.ndarray, act: np.ndarray) -> np.ndarray:
         # TODO: Currently not using func; remove later
         obs = torch.form_numpy(obs).float().to(self.device)
-        obs = self.enc(obs)
+        obs = self.enc_cr(obs)
         act = torch.from_numpy(obs).float()
         value = self.q(torch.cat([obs, act], dim=-1))
         value = value.detach().cpu().numpy()
@@ -166,38 +176,51 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
 
     def forward(self, obs) -> Distribution:
         obs = obs.to(self.device)
-        obs = self.enc(obs)
-        action = self.mu(obs)
-        value = self.q(obs, action)
+        state_ac = self.enc_ac(obs)
+        state_cr = self.enc_cr(obs)
+        action = self.mu(state_ac)
+        # act = ac_dist.mean
+        value = self.q(state_cr, ac_dist)
 
-        return action, value
+        return action, ValueBasedModel
+
 
     def step_ac(self, loss_ac: torch.tensor):
+        if self.enc_ac.net is not None:
+            self.optim_enc_ac.zero_grad()
         self.optim_ac.zero_grad()
+
         loss_ac.backward()
         torch.nn.utils.clip_grad_norm_(
             self.mu.parameters(), self.grad_clip)
-        self.optim_ac.step()
-
         torch.nn.utils.clip_grad_norm_(
-            self.enc.parameters(), self.grad_clip)
-        if self.enc.net is not None:
-            self.optim_enc.step()
+            self.enc_ac.parameters(), self.grad_clip)
+
+        self.optim_ac.step()
+        if self.enc_ac.net is not None:
+            self.optim_enc_ac.step()
 
     def step_cr(self, loss_cr: torch.tensor):
-        if self.enc.net is not None:
-            self.optim_enc.zero_grad()
+        if self.enc_cr.net is not None:
+            self.optim_enc_cr.zero_grad()
         self.optim_cr.zero_grad()
-        loss_cr.backward(retain_graph=True)
+
+        loss_cr.backward()
         torch.nn.utils.clip_grad_norm_(
             self.mu.parameters(), self.grad_clip)
+        torch.nn.utils.clip_grad_norm_(
+            self.enc_cr.parameters(), self.grad_clip)
+
         self.optim_cr.step()
+        if self.enc_cr.net is not None:
+            self.optim_enc_cr.step()
 
     def update_trg(self):
         self.polyak_update(self.mu, self.mu_trg, self.polyak)
         self.polyak_update(self.q, self.q_trg, self.polyak)
-        if self.enc.net is not None:
-            self.polyak_update(self.enc, self.enc_trg, self.polyak)
+        if self.enc_ac.net is not None and self.enc_cr.net is not None:
+            self.polyak_update(self.enc_ac, self.enc_ac_trg, self.polyak)
+            self.polyak_update(self.enc_cr, self.enc_cr_trg, self.polyak)
 
     def save(self, save_dir):
         torch.save(self.mu.state_dict(), os.path.join(save_dir, 'actor.pt'))

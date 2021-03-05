@@ -25,24 +25,25 @@ def loss_func_ac(transitions,
     mus = []
     s = None
     for data, model in zip(transitions, models):
-        data = list(data)
         obs, action, reward, done, obs_ = tuple(
             map(lambda x: torch.from_numpy(x).float().to(model.device), data))
-        if model.enc is not None:
-            state = model.enc(obs)
+        if model.enc_ac is not None:
+            state_ac = model.enc_ac(obs)
+            state_cr = model.enc_cr(obs)
         else:
-            state = obs
+            state_ac = obs
+            state_cr = obs
         if model.index != index:
             with torch.no_grad():
-                mu = model.mu(state)
+                mu = model.mu(state_ac)
                 if model.discrete:
                     mu = F.gumbel_softmax(mu, tau=1, hard=True, dim=-1)
                     # mu = F.softmax(mu, dim=-1)
         else:
-            mu = model.mu(state)
+            mu = model.mu(state_ac)
             if model.discrete:
                 mu = F.gumbel_softmax(mu, tau=1, hard=True, dim=-1)
-            s = state
+            s = state_cr
         mus.append(mu)
 
     mus = torch.cat(mus, dim=-1)
@@ -60,18 +61,22 @@ def loss_func_cr(transitions,
     mu_trgs, acs = [], []
     s = None
     for data, model in zip(transitions, models):
-        data = list(data)
         obs, action, reward, done, obs_ = tuple(
             map(lambda x: torch.from_numpy(x).float().to(model.device), data))
-        if model.enc is not None:
-            state = model.enc(obs)
-            state_ = model.enc_trg(obs_)
+        if model.enc_ac is not None:
+            state_ac = model.enc_ac(obs)
+            state_cr = model.enc_cr(obs)
+            state_ac_ = model.enc_ac_trg(obs_)
+            state_cr_ = model.enc_cr_trg(obs_)
         else:
-            state = obs
+            state_ac = state_cr = obs
+            state_ac_ = state_cr_ = obs_
         if model.index == index:
-            s = state
+            s = state_cr
+            r = reward
+            d = done
         with torch.no_grad():
-            mu_trg = model.mu_trg(state_)
+            mu_trg = model.mu_trg(state_ac_)
             mu_trg = F.gumbel_softmax(mu_trg, tau=1, hard=True, dim=-1)
         mu_trgs.append(mu_trg)
         acs.append(action)
@@ -80,8 +85,8 @@ def loss_func_cr(transitions,
     acs = torch.cat(acs, dim=-1)
 
     with torch.no_grad():
-        q_trg = models[index].q_trg(torch.cat([state_, mu_trgs], dim=-1))
-        bellman_trg = reward + gamma * (1 - done) * q_trg
+        q_trg = models[index].q_trg(torch.cat([state_cr_, mu_trgs], dim=-1))
+        bellman_trg = r + gamma * (1 - d) * q_trg
     q_cr = models[index].q(torch.cat([s, acs], dim=-1))
 
     # l_cr = F.smooth_l1_loss(q_cr, bellman_trg)
@@ -129,12 +134,13 @@ class MADDPGModel(DDPGModel):
 
     def forward(self, obs, joint_ac: Iterable) -> Distribution:
         obs = obs.to(self.device)
-        state = self.enc(obs)
-        ac_dist = self.mu(state)
+        state_ac = self.enc_ac(obs)
+        state_cr = self.enc_cr(obs)
+        ac_dist = self.mu(state_ac)
         # act = ac_dist.mean
         joint_ac[self.index] = ac_dist
         joint_act = torch.cat(joint_ac, dim=-1)
-        val_dist = self.q(state, joint_act)
+        val_dist = self.q(state_cr, joint_act)
 
         return ac_dist, val_dist
 
@@ -169,7 +175,7 @@ class MADDPGAgent(MAgent):
         end_eps = 0.01
         self.eps = start_eps
         self.eps_func = lambda x, y: max(end_eps, x - start_eps / y)
-        self.explore_steps = 1e5
+        self.explore_steps = 5e5
         self.curr_step = 0.0
 
         self.train_interval = self.config.get('train_interval', 1)

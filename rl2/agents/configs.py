@@ -69,7 +69,7 @@ DEFAULT_MADDPG_CONFIG = {
     'train_interval': 10,
     'init_collect': 5000,
     'log_interval': 2000,
-    'lr_ac': 5e-3,
+    'lr_ac': 1e-4,
     'lr_cr': 1e-3,
     'gamma': 0.95,
     'eps': 0.01,

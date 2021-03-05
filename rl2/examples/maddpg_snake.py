@@ -38,10 +38,10 @@ class Encoder(nn.Module):
     def __init__(self, obs_shape, out_shape):
         super().__init__()
         self.body = nn.Sequential(
-            nn.Conv2d(6, 32, 3, padding=1),
+            nn.Conv2d(6, 16, 3, padding=1),
             nn.ReLU(),
             nn.MaxPool2d(2, stride=2),
-            nn.Conv2d(32, 16, 3, padding=1),
+            nn.Conv2d(16, 32, 3, padding=1),
             nn.ReLU(),
             nn.MaxPool2d(2, stride=2)
         )
@@ -51,9 +51,10 @@ class Encoder(nn.Module):
         self.head = nn.Linear(ir_shape, out_shape)
 
     def forward(self, x):
+        x = x / 255.
         ir = self.body(x)
         ir = ir.flatten(start_dim=1)
-        ir = self.head(ir)
+        ir = torch.tanh(self.head(ir))
         return ir
 
 
