@@ -178,11 +178,6 @@ class MADDPGAgent(MAgent):
         self.explore_steps = 5e5
         self.curr_step = 0.0
 
-        self.train_interval = self.config.get('train_interval', 1)
-        self.batch_size = self.config.get('batch_size', 32)
-        self.init_collect = self.config.get('init_collect', 2000)
-        self.gamma = self.config.get('gamma', 0.99)
-
         # Temporary logging variables
         self.log_step = self.config.get('log_interval', 1000)
         self.mean_rew = collections.deque(maxlen=100)

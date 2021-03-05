@@ -274,14 +274,15 @@ class DDPGAgent(Agent):
 
         self.buffer_size = buffer_size
         if buffer_kwargs is None:
-            buffer_kwargs = {'size': self.buffer_size}
+            buffer_kwargs = {'size': self.config.buffer_size}
 
         super().__init__(model,
                          update_interval,
                          num_epochs,
                          buffer_cls,
                          buffer_kwargs)
-        self.batch_size = batch_size
+
+        self.model = model
         self.train_interval = train_interval
         self.eps = eps
         self.explore = explore
