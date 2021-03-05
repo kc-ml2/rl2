@@ -153,7 +153,7 @@ class Logger:
         return s[:20] + '...' if len(s) > 23 else s
 
 
-env = gym.make('Snake-v1', num_snakes=1)
+env = gym.make('Snake-v1', num_snakes=1, num_fruits=20)
 env = marlenv.wrappers.SingleAgent(env)
 
 # check Continuous or Discrete
@@ -181,7 +181,7 @@ myconfig = {
     'lr_ac': 1e-4,
     'lr_cr': 1e-3,
     'gamma': 0.99,
-    'eps': 0.00001,
+    'eps': 0.001,
     'polyak': 0.99,
     'grad_clip': 0.01,
     'loss_fn': 'mse_loss',  # 'smoothl1loss'
