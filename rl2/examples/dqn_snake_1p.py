@@ -9,6 +9,7 @@ import traceback
 from datetime import datetime
 from pathlib import Path
 import sys
+import json
 import gym
 import marlenv
 from marlenv.wrappers import SingleAgent
@@ -217,6 +218,9 @@ class Encoder(nn.Module):
 # writer = SummaryWriter()
 if __name__ == '__main__':
     logger = Logger(name='DEFAULT', args=config)
+    import json
+    with open(logger.log_dir+'/config.json', 'w') as f:
+        json.dump(myconfig, f)
     # hparams = dict(config)
     # logger.add_hparams(hparams, {})
     observation_shape = env.observation_space.shape
