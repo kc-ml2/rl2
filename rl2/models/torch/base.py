@@ -126,7 +126,6 @@ class ValueBasedModel(TorchModel):
     but this class can be used as vanila Q learning, also.
     """
 
-    @abstractmethod
     def __init__(self, observation_shape, action_shape, **kwargs):
         save_dir = kwargs.get('save_dir')
         device = kwargs.get('device')
