@@ -47,8 +47,6 @@ class TorchModel(nn.Module):
         self.device = device if device else available_device
         # self.summary_writer = SummaryWriter(log_dir=save_dir)
 
-    def forward(self, *args, **kwargs):
-        raise NotImplementedError
 
     @abstractmethod
     def step(self, loss):
@@ -113,41 +111,10 @@ class PolicyBasedModel(TorchModel):
     but this class can be used as vanila policy gradient, also.
     """
 
-    @abstractmethod
     def __init__(self, observation_shape, action_shape, **kwargs):
         save_dir = kwargs.get('save_dir')
         device = kwargs.get('device')
         super().__init__(observation_shape, action_shape, save_dir=save_dir, device=device)
-
-    @abstractmethod
-    def forward(self, state):
-        """
-        TODO: implement vanila pg learning
-        """
-        pass
-
-    @abstractmethod
-    def step(self, loss):
-        """
-        TODO:
-        implement vanila pg step
-        """
-        pass
-
-    @abstractmethod
-    def save(self):
-        """
-        TODO:
-        implement vanila pg save
-        """
-        pass
-
-    @abstractmethod
-    def load(self):
-        """
-        implement vanila pg load
-        """
-        pass
 
 
 class ValueBasedModel(TorchModel):
@@ -171,32 +138,3 @@ class ValueBasedModel(TorchModel):
     def update_trg(self, alpha=0.0):
         self.copy_param(self.q_network, self.target_network, alpha)
 
-    @abstractmethod
-    def forward(self, state):
-        """
-        TODO: implement vanila q learning
-        """
-        pass
-
-    @abstractmethod
-    def step(self, loss):
-        """
-        TODO: implement vanila q learning
-        """
-
-        pass
-
-    @abstractmethod
-    def save(self):
-        """
-        TODO: implement vanila q learning
-        """
-
-        pass
-
-    @abstractmethod
-    def load(self):
-        """
-        TODO: implement vanila q learning
-        """
-        pass
