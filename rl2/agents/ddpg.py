@@ -41,7 +41,7 @@ def loss_func_cr(data, model, **kwargs):
     with torch.no_grad():
         a_trg = model.mu_trg(s_ac_)
         if model.discrete:
-            a_trg = F.gumbel_softmax(a_trg, tau=1., hard=True)
+            a_trg = F.gumbel_softmax(a_trg, dim=-1, tau=1., hard=True)
         else:
             a_trg = torch.tanh(a_trg)
         v_trg = model.q_trg(torch.cat([s_cr_, a_trg], dim=-1))
@@ -165,7 +165,7 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
         obs = self.enc_ac(obs)
         action = self.mu(obs)
         if self.discrete:
-            action = F.softmax(action, dim=-1)
+            action = F.gumbel_softmax(action, dim=-1, tau=1.0, hard=True)
         else:
             action = torch.tanh(action)
         action = action.detach().cpu().numpy()
