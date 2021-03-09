@@ -138,9 +138,6 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
             lambda x: x.to(self.device),
             [self.mu, self.mu_trg, self.q, self.q_trg]
         )
-        self.mu, self.q, self.mu_trg, self.q_trg = map(
-            lambda x: x.to(self.device),
-            [self.mu, self.q, self.mu_trg, self.q_trg])
 
     def _make_mlp_optim_target(self, network,
                                num_input, num_output, optim_name, **kwargs):
@@ -232,17 +229,25 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
             self.polyak_update(self.enc_cr, self.enc_cr_trg, self.polyak)
 
     def save(self, save_dir):
+        torch.save(self.enc_ac.state_dict(),
+                   os.path.join(save_dir, 'enc_ac.pt'))
+        torch.save(self.enc_cr.state_dict(),
+                   os.path.join(save_dir, 'enc_ac.pt'))
         torch.save(self.mu.state_dict(), os.path.join(save_dir, 'actor.pt'))
         torch.save(self.q.state_dict(), os.path.join(save_dir, 'critic.pt'))
         print(f'model saved in {save_dir}')
 
     def load(self, load_dir):
-        ckpt = torch.load(
-            load_dir,
-            map_location=self.device
-        )
-        self.model.mu.load_state_dict(ckpt)
-        self.model.q.load_state_dict(ckpt)
+        # TODO: load pretrained model
+        # ckpt = torch.load(
+        #     os.path.join(load_dir, 'enc_ac.pt'),
+        #     map_location=self.device
+        # )
+        # self.enc_ac.load_state_dict(ckpt)
+        # self.mu.load_state_dict(ckpt)
+        # self.enc_cr.load_state_dict(ckpt)
+        # self.q.load_state_dict(ckpt)
+        pass
 
 
 class DDPGAgent(Agent):
@@ -260,7 +265,7 @@ class DDPGAgent(Agent):
                  action_high: np.ndarray = None,
                  loss_func_ac: Callable = loss_func_ac,
                  loss_func_cr: Callable = loss_func_cr,
-                 save_interval: int = int(1e5),
+                 save_interval: int = int(1e6),
                  eps: float = 1e-5,
                  gamma: float = 0.99,
                  log_interval: int = int(1e3),
@@ -303,18 +308,18 @@ class DDPGAgent(Agent):
             obs = np.expand_dims(obs, axis=0)
         action = self.model.act(obs)
         if self.model.discrete:
-            if self.explore:
+            # epsilon greedy action selection
+            if self.explore and np.random.random() < self.eps:
                 _action = []
                 for ac in action:
                     _action.append(np.random.randint(
                         self.model.action_shape[0]))
                 action = np.array(_action).item()
             else:
-                action = np.max(action, axis=-1)
+                action = np.array(np.argmax(action, axis=-1))
         else:
             if self.explore:
                 action += self.eps * np.random.randn(*action.shape)
-        if not self.model.discrete:
             action = np.clip(action, self.action_low, self.action_high)
 
         return action

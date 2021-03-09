@@ -181,12 +181,12 @@ myconfig = {
     'lr_ac': 1e-4,
     'lr_cr': 1e-3,
     'gamma': 0.99,
-    'eps': 0.001,
+    'eps': 0.2,
     'polyak': 0.99,
     'grad_clip': 0.01,
     'loss_fn': 'mse_loss',  # 'smoothl1loss'
     'log_dir': './runs',
-    'tag': '',
+    'tag': 'DDPG/SNAKE',
     'log_level': 10
 }
 
@@ -222,6 +222,9 @@ if __name__ == '__main__':
     logger = Logger(name='DEFAULT', args=config)
     # hparams = dict(config)
     # logger.add_hparams(hparams, {})
+    import json
+    with open(logger.log_dir+'/config.json', 'w') as f:
+        json.dump(myconfig, f)
     observation_shape = env.observation_space.shape
     action_shape = (env.action_space.n,) if hasattr(
         env.action_space, 'n') else env.action_space.shape
