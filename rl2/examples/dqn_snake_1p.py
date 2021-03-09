@@ -16,7 +16,6 @@ from marlenv.wrappers import SingleAgent
 import os
 from easydict import EasyDict
 from rl2.agents.configs import DEFAULT_DQN_CONFIG
-from rl2.agents.ddpg import DDPGAgent, DDPGModel
 from rl2.workers.base import EpisodicWorker
 from torch.utils.tensorboard.writer import SummaryWriter
 
@@ -180,7 +179,7 @@ myconfig = {
     'optim': 'torch.optim.Adam',  # 'RMSprop'
     'lr': 1e-4,
     'gamma': 0.99,
-    'eps': 0.01,
+    'eps': 0.05,
     'polyak': 0,
     'grad_clip': 0.01,
     'log_dir': './runs',
@@ -248,16 +247,17 @@ if __name__ == '__main__':
                      eps=config.eps,
                      gamma=config.gamma,
                      log_interval=config.log_interval,
-                     logger=logger)
+                     logger=logger
+                     )
 
     worker = EpisodicWorker(env=env,
                             agent=agent,
                             training=True,
-                            max_episodes=1e4,
+                            max_episodes=1e9,
                             max_steps_per_ep=1e3,
                             log_interval=config.log_interval,
                             render=False,
                             logger=logger,
-                            config=config)
+                            )
 
     worker.run()

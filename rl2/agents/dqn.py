@@ -21,21 +21,11 @@ def loss_func(data, model, **kwargs):
         s = model.enc(s)
         s_ = model.enc_trg(s_)
 
-    _batch_size = s.shape[0]
-
     with torch.no_grad():
-        a_dim = model.action_shape[0]
-        actions = torch.arange(0, a_dim).repeat(_batch_size).view(
-            _batch_size, a_dim, -1).float().to(model.device)
-        # actions = torch.arange(0, a_dim).unsqueeze(-1).float().to(model.device)
-        s__ = s_.repeat(1, a_dim).view(_batch_size, a_dim, -1)
-        a_trg = torch.argmax(model.q_trg(
-            torch.cat([s__, actions], dim=-1)), dim=1).float()  # .unsqueeze(-1)
-
-        v_trg = model.q_trg(torch.cat([s_, a_trg], dim=-1))
+        v_trg = torch.max(model.q_trg(s_), dim=-1).values.unsqueeze(-1)
         bellman_trg = r + kwargs['gamma'] * v_trg * (1-d)
 
-    q = model.q(torch.cat([s, a], dim=-1))
+    q = torch.max((model.q(s) * a), dim=-1).values.unsqueeze(-1)
     loss = F.smooth_l1_loss(q, bellman_trg)
 
     return loss
@@ -80,7 +70,6 @@ class DQNModel(ValueBasedModel):
                  **kwargs):
         # FIXME: handling action shape for discrete action -> error in buffer
         super().__init__(observation_shape, action_shape, **kwargs)
-        self.action_shape = (1,)
 
         if optim is None:
             optim = self.optim
@@ -107,7 +96,7 @@ class DQNModel(ValueBasedModel):
                                          [self.enc,  self.enc_trg])
 
         self.q, self.optim, self.q_trg = self._make_mlp_optim_target(
-            q_network, obs_dim + 1, 1, optim, lr=self.lr)
+            q_network, obs_dim, self.action_shape[0], optim, lr=self.lr)
 
         self.q, self.q_trg = map(lambda x: x.to(self.device),
                                  [self.q, self.q_trg])
@@ -135,17 +124,13 @@ class DQNModel(ValueBasedModel):
 
     def act(self, obs: np.array) -> np.ndarray:
         obs = torch.from_numpy(obs).float().to(self.device)
-        a_dim = self.action_shape[0]
-        actions = torch.arange(0, a_dim).view(
-            1, a_dim, -1).float().to(self.device)
         state = self.enc(obs)
-        state = state.repeat(1, a_dim).view(1, a_dim, -1)
 
         if np.random.random() > self.eps:
             action = torch.argmax(
-                self.q(torch.cat([state, actions], dim=-1))).unsqueeze(-1)
+                self.q(state))
         else:
-            action = torch.randint(self.action_shape[0], (1,))
+            action = torch.randint(self.action_shape[0], (1,)).squeeze()
 
         action = action.detach().cpu().numpy()
 
@@ -248,15 +233,19 @@ class DQNAgent(Agent):
         self.train_after = train_after
         self.update_after = update_after
 
-    def act(self, obs: np.ndarray) -> np.ndarray:
+    def act(self, obs: np.ndarray) -> int:
         if len(obs.shape) in (1, 3):
             obs = np.expand_dims(obs, axis=0)
-        action = self.model.act(obs)
+        action = self.model.act(obs).item()
         # FIXME: expand_dims?
-        return action[0]
+        return action
 
     def step(self, s, a, r, d, s_):
+        if self.model.discrete:
+            a_onehot = np.eye(self.model.action_shape[0])[a]
+            a = a_onehot
         self.collect(s, a, r, d, s_)
+
         info = {}
         if (self.curr_step % self.train_interval == 0 and
                 self.curr_step > self.train_after):

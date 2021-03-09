@@ -42,8 +42,8 @@ class RolloutWorker:
         ac = self.agent.act(self.obs)
         obs, rew, done, info = self.env.step(ac)
         if self.training:
-            info_a = self.agent.step(self.obs, ac, rew, done, obs)
-            info = {**info, **info_a}
+            _info = self.agent.step(self.obs, ac, rew, done, obs)
+            info = {**info, **_info}
             # task_list = self.agent.dispatch()
             # if len(task_list) > 0:
             #     results = {bound_method.__name__: bound_method() for bound_method in task_list}
