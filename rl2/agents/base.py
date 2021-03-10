@@ -18,14 +18,14 @@ class Agent:
             self,
             # model must be instantiated and initialized before passing as argument
             model: Union[TorchModel, TFModel],
-            update_interval,
+            train_interval,
             num_epochs,
             # device,
             buffer_cls,
             buffer_kwargs,
     ):
         self.curr_step = 0
-        self.update_interval = update_interval
+        self.train_interval = train_interval
 
         # """
         self.model = model
@@ -84,14 +84,14 @@ class MAgent:
             self,
             # model must be instantiated and initialized before passing as argument
             models: List[Union[TorchModel, TFModel]],
-            update_interval,
+            train_interval,
             num_epochs,
             # device,
             buffer_cls,
             buffer_kwargs,
     ):
         self.curr_step = 0
-        self.update_interval = update_interval
+        self.train_interval = train_interval
 
         # """
         self.models = models

@@ -1,5 +1,5 @@
 import random
-from typing import List, Tuple
+from typing import Tuple
 from collections import Iterable
 import numpy as np
 import warnings
@@ -16,15 +16,37 @@ class ReplayBuffer:
                      'state_p': ((4,), np.float32),
                  }):
         self.max_size = int(size)
-        self.keys = elements.keys()
+        if isinstance(elements, dict):
+            self.keys = elements.keys()
+            self.specs = elements.values()
+        elif isinstance(elements, set):
+            self.keys = list(elements)
+            self.specs = None
+        else:
+            raise ValueError("Elements can only be a dictionary or a set")
         self.transition = namedtuple("Transition",
                                      ' '.join(list(self.keys)))
         self.transition_idx = namedtuple("Transition",
-                                         ' '.join(list(self.keys)))
-        for k, shape_dtype in elements.items():
-            shape, dtype = shape_dtype
-            assert type(shape) == tuple
-            setattr(self, k, np.ones((self.max_size, *shape), dtype=dtype))
+                                         ' '.join(list(self.keys)) + ' idx')
+        self.reset()
+
+    def reset(self):
+        if self.specs is not None:
+            for k, shape_dtype in zip(self.keys, self.specs):
+                if len(shape_dtype) == 2:
+                    shape, dtype = shape_dtype
+                else:
+                    shape = shape_dtype
+                    dtype = None
+                assert isinstance(shape, Iterable), 'Non-iterable shape given'
+                if dtype and dtype.__module__ == 'numpy':
+                    setattr(self, k,
+                            np.ones((self.max_size, *shape), dtype=dtype))
+                else:
+                    setattr(self, k, list())
+        else:
+            for k in self.keys():
+                setattr(self, k, list())
 
         self.curr_idx = 0
         self.curr_size = 0
@@ -33,7 +55,7 @@ class ReplayBuffer:
         items = []
         for key in self.keys:
             item = getattr(self, key)[sample_idx]
-            if len(item.shape) < 2:
+            if type(item) == np.ndarray and len(item.shape) < 2:
                 item = np.expand_dims(item, axis=-1)
             items.append(item)
         return items
@@ -47,7 +69,7 @@ class ReplayBuffer:
 
     def to_dict(self):
         d = {}
-        for key in self.elements:
+        for key in self.keys:
             d[key] = getattr(self, key)
         return d
 
@@ -78,9 +100,9 @@ class ReplayBuffer:
         samples = self[sample_idx]
         if return_idx:
             samples.append(sample_idx)
-        return tuple(samples)
-        #     return self.transition_idx._make(samples)
-        # return self.transition._make(samples)
+            return self.transition_idx._make(samples)
+        return self.transition._make(samples)
+        # return tuple(samples)
 
     def update_(self, idxs, **new_vals):
         idxs = idxs.astype(np.int32)
@@ -107,6 +129,33 @@ class ExperienceReplay(ReplayBuffer):
 
     def push(self, s, a, r, d, s_):
         super().push(state=s, action=a, reward=r, done=d, state_=s_)
+
+    def sample(self, num, idx=None, return_idx=False):
+        transitions = super().sample(num, idx=idx, return_idx=return_idx)
+        return (transitions.state, transitions.action, transitions.reward,
+                transitions.done, transitions.state_)
+
+
+class TemporalMemory(ReplayBuffer):
+    def __init__(self, size=1):
+        super().__init__(
+            size, elements={
+                'state',
+                'action',
+                'reward',
+                'done',
+                'value',
+                'nlp'
+            }
+        )
+
+    def push(self, s, a, r, d, v, nlp):
+        super().push(state=s, action=a, reward=r, done=d, value=v, nlp=nlp)
+
+    def sample(self, num, idx=None, return_idx=False):
+        transitions = super().sample(num, idx=idx, return_idx=return_idx)
+        return (transitions.state, transitions.action, transitions.reward,
+                transitions.done, transitions.value, transitions.nlp)
 
 
 class ReplayBuffer_:
