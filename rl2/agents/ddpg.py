@@ -10,7 +10,7 @@ import torch.nn.functional as F
 from torch.distributions import Distribution
 from rl2.agents.base import Agent
 from rl2.buffers.base import ExperienceReplay, ReplayBuffer
-from rl2.models.torch.base import PolicyBasedModel, ValueBasedModel
+from rl2.models.torch.base import PolicyBasedModel, ValueBasedModel, MyModel
 from rl2.networks.torch.networks import MLP
 
 
@@ -109,8 +109,8 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
         self.is_save = kwargs.get('is_save', False)
 
         obs_dim = observation_shape[0]
-        self.enc_ac = DummyEncoder(encoder, reorder, flatten).to(self.device)
-        self.enc_cr = DummyEncoder(encoder, reorder, flatten).to(self.device)
+        self.enc_ac = DummyEncoder(encoder, reorder, flatten)
+        self.enc_cr = DummyEncoder(encoder, reorder, flatten)
         self.enc_ac_trg = copy.deepcopy(self.enc_ac)
         self.enc_cr_trg = copy.deepcopy(self.enc_cr)
         self.discrete = discrete
@@ -125,22 +125,13 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
                 self.enc_cr, optim_cr
             )
             obs_dim = encoder_dim
-            self.enc_ac, self.enc_cr, self.enc_ac_trg, self.enc_cr_trg = map(
-                lambda x: x.to(self.device),
-                [self.enc_ac, self.enc_cr, self.enc_ac_trg, self.enc_cr_trg])
         self.mu, self.optim_ac, self.mu_trg = self._make_mlp_optim_target(
             actor, obs_dim, action_shape[0], optim_ac, lr=self.lr_ac
         )
         self.q, self.optim_cr, self.q_trg = self._make_mlp_optim_target(
             critic, obs_dim + action_shape[0], 1, optim_cr, lr=self.lr_cr
         )
-        self.mu, self.mu_trg, self.q, self.q_trg = map(
-            lambda x: x.to(self.device),
-            [self.mu, self.mu_trg, self.q, self.q_trg]
-        )
-        self.mu, self.q, self.mu_trg, self.q_trg = map(
-            lambda x: x.to(self.device),
-            [self.mu, self.q, self.mu_trg, self.q_trg])
+        self.to(self.device)
 
     def _make_mlp_optim_target(self, network,
                                num_input, num_output, optim_name, **kwargs):

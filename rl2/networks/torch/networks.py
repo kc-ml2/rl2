@@ -1,21 +1,54 @@
+import math
 import torch
 import torch.nn as nn
 
 
 class MLP(nn.Module):
-    def __init__(self, in_shape, out_shape, hidden=[128], activ='ReLU'):
+    def __init__(self, in_dim, out_dim, hidden=[128], activ='ReLU'):
         super().__init__()
         mod_list = []
-        prev = in_shape
+        prev = in_dim
         for h in hidden:
             mod_list.append(nn.Linear(prev, h))
             mod_list.append(getattr(nn, activ)())
             prev = h
-        mod_list.append(nn.Linear(prev, out_shape))
+        mod_list.append(nn.Linear(prev, out_dim))
         self.body = nn.Sequential(*mod_list)
 
     def forward(self, x):
         return self.body(x)
+
+
+class ConvEnc(nn.Module):
+    def __init__(self, in_shape, encoded_dim, activ='ReLU'):
+        super().__init__()
+        assert len(in_shape) == 3
+        # Assume the input is (C, H, W)
+        smaller_size = min(in_shape[1], in_shape[2])
+        depth = max(1, int(math.log2(smaller_size / 4)))
+        max_channel = 64
+        mod_list = []
+        prev_channel = in_shape[0]
+        for c in range(depth):
+            next_channel = min(16 * 2**c, max_channel)
+            mod_list.append(nn.Conv2d(prev_channel, next_channel, 3,
+                                      stride=1, padding=1))
+            mod_list.append(nn.ReLU())
+            mod_list.append(nn.MaxPool2d(2, stride=2))
+            prev_channel = next_channel
+        self.conv = nn.Sequential(*mod_list)
+        dummy = torch.zeros(*in_shape)
+        with torch.no_grad():
+            conv_dim = self.conv(dummy).flatten().shape[-1]
+        self.fc = nn.Linear(conv_dim, encoded_dim)
+        self.activ = getattr(nn, activ)
+
+    def forward(self, x):
+        x = self.conv(x)
+        x = x.view(x.shape[0], -1)
+        x = self.activ(self.fc(x))
+
+        return x
 
 
 class DeepMindEnc(nn.Module):
