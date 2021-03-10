@@ -171,7 +171,7 @@ config = DEFAULT_DDPG_CONFIG
 myconfig = {
     'num_workers': 64,
     'buffer_size': int(1e5),
-    'batch_size': 128,
+    'batch_size': 512,
     'num_epochs': 1,
     'update_interval': 1,
     'train_interval': 1,
