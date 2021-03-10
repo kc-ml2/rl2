@@ -1,4 +1,5 @@
-from rl2.distributions.torch import *
+from rl2.distributions.torch.distributions import *
+
 '''
 import torch
 import torch.nn as nn

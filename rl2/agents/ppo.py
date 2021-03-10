@@ -9,28 +9,28 @@ from rl2.agents.utils import general_advantage_estimation
 from rl2.buffers import ReplayBuffer, TemporalMemory
 
 
-def loss_func(data, model, clip_param=0.1, vf_coef=0.5, ent_coef=0.01):
-    obs, old_acs, _, _, old_rets, old_nlps, advs = data
-    obs, old_acs, old_rets, old_nlps, advs = map(
-        lambda x: x.from_numpy().to(model.device),
-        [obs, old_acs, old_rets, old_nlps, advs])
-    old_vals = old_rets - advs
+def loss_func(data, model, clip_param=0.1, vf_coef=0.5, ent_coef=0.001):
+    obs, old_acs, _, _, old_vals, old_nlps, advs = data
+    obs, old_acs, old_vals, old_nlps, advs = map(
+        lambda x: torch.from_numpy(x).float().to(model.device),
+        [obs, old_acs, old_vals, old_nlps, advs])
+    val_targets = old_vals + advs
     # Infer from model
     ac_dist, val_dist = model(obs)
-    nlps = -ac_dist.log_prob(old_acs)
+    nlps = -ac_dist.log_prob(old_acs.squeeze()).unsqueeze(-1)
     ent = ac_dist.entropy().mean()
     vals = val_dist.mean
 
     vals_clipped = (old_vals + torch.clamp(vals - old_vals,
                                            -clip_param, clip_param))
-    vf_loss_clipped = F.mse_loss(vals_clipped, old_rets.detach())
-    vf_loss = F.mse_loss(vals, old_rets.detach())
+    vf_loss_clipped = F.mse_loss(vals_clipped, val_targets)
+    vf_loss = F.mse_loss(vals, val_targets)
     vf_loss = torch.max(vf_loss, vf_loss_clipped).mean()
 
     # Standardize advantage
     advs = (advs - advs.mean()) / (advs.std() + 1e-7)
 
-    ratio = torch.exp(old_nlps - nlps).unsqueeze(-1)
+    ratio = torch.exp(old_nlps - nlps)
     pg_loss1 = -advs * ratio
 
     ratio = torch.clamp(ratio, 1 - clip_param, 1 + clip_param)
@@ -51,7 +51,7 @@ class PPOModel(TorchModel):
                  observation_shape,
                  action_shape,
                  encoder: torch.nn.Module = None,
-                 encoded_dim: int = None,
+                 encoded_dim: int = 64,
                  optimizer='torch.optim.Adam',
                  lr=1e-4,
                  discrete: bool = True,
@@ -71,13 +71,15 @@ class PPOModel(TorchModel):
                                   reorder=reorder,
                                   **kwargs)
 
-        self.value = BranchModel(observation_shape, action_shape,
+        self.value = BranchModel(observation_shape, (1,),
                                  encoded_dim=encoded_dim,
-                                 discrete=discrete,
-                                 deterministic=deterministic,
+                                 discrete=False,
+                                 deterministic=True,
                                  flatten=flatten,
                                  reorder=reorder,
                                  **kwargs)
+        self.init_params(self.policy)
+        self.init_params(self.value)
 
     def _clean(self):
         for mod in self.children():
@@ -86,18 +88,24 @@ class PPOModel(TorchModel):
 
     def forward(self, obs) -> torch.tensor:
         obs = obs.to(self.device)
-        action = self.policy(obs).sample()
-        value = self.value(obs).mean
+        action_dist = self.policy(obs)
+        value_dist = self.value(obs)
 
         self._clean()
-        return action, value
+        return action_dist, value_dist
 
-    def act(self, obs: np.ndarray) -> np.ndarray:
+    def act(self, obs: np.ndarray, get_log_prob=False) -> np.ndarray:
         obs = torch.from_numpy(obs).float().to(self.device)
-        action = self.policy(obs).sample()
+        action_dist = self.policy(obs)
+        action = action_dist.sample()
+        if get_log_prob:
+            log_prob = action_dist.log_prob(action)
+            log_prob = log_prob.detach().cpu().numpy()
         action = action.detach().cpu().numpy()
 
         self._clean()
+        if get_log_prob:
+            return action, log_prob
         return action
 
     def val(self, obs: np.ndarray) -> np.ndarray:
@@ -141,35 +149,42 @@ class PPOAgent(Agent):
         self.done = False
         self.value = None
         self.nlp = None
+        self.loss_func = loss_func
         self.val_coef = val_coef
         self.gamma = gamma
         self.lamda = lamda
+        self.batch_size = batch_size
 
     def act(self, obs):
-        action = self.model.act(obs)
+        action, log_prob = self.model.act(obs, get_log_prob=True)
         self.value = self.model.val(obs)
-        self.nlp = -self.model.policy.log_prob(action)
+        self.nlp = -log_prob
 
         return action
 
     def step(self, s, a, r, d, s_):
         self.curr_step += 1
-        self.collect(s, a, r, self.done, self.val, self.nlp)
+        self.collect(s, a, r, self.done, self.value, self.nlp)
         if self.curr_step % self.train_interval == 0:
             value = self.model.val(s_)
-            advs = general_advantage_estimation(self.buffer, value, d,
+            advs = general_advantage_estimation(self.buffer.to_dict(),
+                                                value, d,
                                                 self.gamma, self.lamda)
             self.train(advs)
             self.buffer.reset()
         self.done = d
 
+        info = dict()
+        return info
+
     def train(self, advs, **kwargs):
         for _ in range(self.num_epochs):
-            batch_data = self.buffer.sample(self.batch_size)
-            batch_data = (*batch_data, advs)
+            batch_data = self.buffer.sample(self.batch_size, return_idx=True)
+            idx = batch_data[-1]
+            batch_data = (*batch_data[:-1], advs[idx])
             loss = self.loss_func(batch_data, self.model)
-            self.policy.step(loss, retain_graph=True)
-            self.value.step(loss)
+            self.model.policy.step(loss, retain_graph=True)
+            self.model.value.step(loss)
 
     def collect(self, *args):
         self.buffer.push(*args)

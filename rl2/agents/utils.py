@@ -1,23 +1,24 @@
 import numpy as np
 
 
-def general_advantage_estimation(trajectories: dict, value_p, dones,
+def general_advantage_estimation(trajectories: dict, value_p, done_p,
                                  gamma, lamda):
     # General Advantage Estimation
     gae = 0
-    advs = np.zeros(trajectories['value'].shape[0], 1)
+    value_p = np.array([value_p])
+    advs = np.zeros((trajectories['value'].shape[0], 1))
     n_step = advs.shape[0]
-    done_mask = 1 - dones
+    done_mask = (1 - np.array([done_p])).astype(np.float)
 
     for t in reversed(range(n_step)):
         if t != n_step - 1:
             value_p = trajectories['value'][t + 1]
-            done_mask = 1.0 - trajectories['done'][t + 1].float()
+            done_mask = 1.0 - (trajectories['done'][t + 1]).astype(np.float)
         rews = trajectories['reward'][t]
 
-        while len(done_mask.shape) < len(value_p.shape):
+        while len(done_mask.shape) < len(advs.shape):
             done_mask = np.expand_dims(done_mask, axis=1)
-        while len(rews.shape) < len(value_p.shape):
+        while len(rews.shape) < len(advs.shape):
             rews = np.expand_dims(rews, axis=1)
 
         value = trajectories['value'][t]
@@ -25,4 +26,4 @@ def general_advantage_estimation(trajectories: dict, value_p, dones,
         gae = delta + done_mask * gamma * lamda * gae
         advs[t] = gae
 
-    return advs.detach()
+    return advs
