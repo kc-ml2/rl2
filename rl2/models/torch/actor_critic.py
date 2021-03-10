@@ -4,10 +4,10 @@ from abc import abstractmethod
 import torch
 from torch import nn
 
-from rl2.models.torch.base import PolicyGradientModel
+from rl2.models.torch.base import PolicyBasedModel
 
 
-class ActorCriticModel(PolicyGradientModel):
+class ActorCriticModel(PolicyBasedModel):
     """
     actor critic is also an interface, but serves as vanilla actor critic(original paper)
     """
