@@ -232,7 +232,7 @@ class BaseEncoder(nn.Module):
         self.memory[input_id] = x
         return x
 
-    def reset_memory(self, grad_input, grad_outpu):
+    def reset_memory(self):
         self.memory = {}
 
 
@@ -256,6 +256,7 @@ class BranchModel(TorchModel):
                  head=None,
                  optimizer='torch.optim.Adam',
                  lr=1e-4,
+                 grad_clip=1.0,
                  make_target=False,
                  discrete=True,
                  deterministic=True,
@@ -269,6 +270,7 @@ class BranchModel(TorchModel):
 
         self.discrete = discrete
         self.deterministic = deterministic
+        self.grad_clip = grad_clip
 
         self.encoder = self._handle_encoder(
             encoder, observation_shape, encoded_dim,
@@ -276,7 +278,7 @@ class BranchModel(TorchModel):
         ).to(self.device)
 
         self.head = self._handle_head(
-            head, action_shape, encoded_dim
+            head, action_shape, encoded_dim, discrete, deterministic
         ).to(self.device)
 
         self.optimizer = self.get_optimizer_by_name(
@@ -330,7 +332,7 @@ class BranchModel(TorchModel):
                 distribution = 'Gaussian'
                 # TODO: Add other distributions
                 # ex) GMM, quantile, beta, etc.
-        head = getattr(dist, distribution + 'HEAD')(*dims, module=head)
+        head = getattr(dist, distribution + 'Head')(*dims, module=head)
 
         return head
 
@@ -346,7 +348,7 @@ class BranchModel(TorchModel):
     def forward(self, observation):
         # TODO: check for shared memory of the same trace
         ir = self.encoder(observation)
-        ir = torch.cat(ir)
+        # ir = torch.cat(ir)
         output = self.head(ir)
 
         return output

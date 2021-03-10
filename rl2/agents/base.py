@@ -35,8 +35,6 @@ class Agent:
 
         self.buffer = buffer_cls(
                 size=buffer_kwargs['size'],
-                state_shape=model.observation_shape,
-                action_shape=model.action_shape
         )
         self._hook = None
 

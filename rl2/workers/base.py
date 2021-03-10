@@ -1,5 +1,6 @@
 from typing import Optional
 from easydict import EasyDict
+from collections import deque
 from rl2.agents.base import Agent
 from torch.utils.tensorboard import SummaryWriter
 
@@ -43,7 +44,10 @@ class RolloutWorker:
         obs, rew, done, info = self.env.step(ac)
         if self.training:
             info_a = self.agent.step(self.obs, ac, rew, done, obs)
-            info = {**info, **info_a}
+            if info:
+                info = {**info, **info_a}
+            else:
+                info = {**info_a}
             # task_list = self.agent.dispatch()
             # if len(task_list) > 0:
             #     results = {bound_method.__name__: bound_method() for bound_method in task_list}
@@ -73,12 +77,26 @@ class MaxStepWorker(RolloutWorker):
                  max_steps: int, **kwargs):
         super().__init__(env, agent, **kwargs)
         self.max_steps = int(max_steps)
+        self.scores = deque(maxlen=100)
+        self.num_episodes = 0
+        self.log_step = 10000
 
     def run(self):
+        episode_score = 0.0
         for step in range(self.max_steps):
             done, info, results = self.rollout()
 
+            episode_score += info['rew']
             # TODO: when done do sth like logging from results
+            # TODO: handle vecenv cases
+            if done:
+                self.scores.append(episode_score)
+                episode_score = 0.0
+                self.num_episodes += 1
+
+            if step % self.log_step == 0 and self.num_episodes > 0:
+                avg_score = sum(list(self.scores)) / len(list(self.scores))
+                print(step, self.num_episodes, avg_score)
 
 
 class EpisodicWorker(RolloutWorker):

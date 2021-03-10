@@ -43,10 +43,10 @@ class ReplayBuffer:
                     setattr(self, k,
                             np.ones((self.max_size, *shape), dtype=dtype))
                 else:
-                    setattr(self, k, list())
+                    setattr(self, k, [None] * self.max_size)
         else:
-            for k in self.keys():
-                setattr(self, k, list())
+            for k in self.keys:
+                setattr(self, k, [None] * self.max_size)
 
         self.curr_idx = 0
         self.curr_size = 0
@@ -54,7 +54,10 @@ class ReplayBuffer:
     def __getitem__(self, sample_idx):
         items = []
         for key in self.keys:
-            item = getattr(self, key)[sample_idx]
+            item = getattr(self, key)
+            if isinstance(item, list):
+                item = np.array(item)
+            item = item[sample_idx]
             if type(item) == np.ndarray and len(item.shape) < 2:
                 item = np.expand_dims(item, axis=-1)
             items.append(item)
@@ -70,7 +73,10 @@ class ReplayBuffer:
     def to_dict(self):
         d = {}
         for key in self.keys:
-            d[key] = getattr(self, key)
+            val = getattr(self, key)[:self.curr_size]
+            if isinstance(val, list):
+                val = np.vstack(val)
+            d[key] = val
         return d
 
     def to_df(self):
@@ -132,8 +138,13 @@ class ExperienceReplay(ReplayBuffer):
 
     def sample(self, num, idx=None, return_idx=False):
         transitions = super().sample(num, idx=idx, return_idx=return_idx)
-        return (transitions.state, transitions.action, transitions.reward,
-                transitions.done, transitions.state_)
+        output = [transitions.state, transitions.action, transitions.reward,
+                  transitions.done, transitions.state_]
+        if return_idx:
+            output.append(transitions.idx)
+
+        return tuple(output)
+
 
 
 class TemporalMemory(ReplayBuffer):
@@ -154,8 +165,12 @@ class TemporalMemory(ReplayBuffer):
 
     def sample(self, num, idx=None, return_idx=False):
         transitions = super().sample(num, idx=idx, return_idx=return_idx)
-        return (transitions.state, transitions.action, transitions.reward,
-                transitions.done, transitions.value, transitions.nlp)
+        output = [transitions.state, transitions.action, transitions.reward,
+                  transitions.done, transitions.value, transitions.nlp]
+        if return_idx:
+            output.append(transitions.idx)
+
+        return tuple(output)
 
 
 class ReplayBuffer_:
