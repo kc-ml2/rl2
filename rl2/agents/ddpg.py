@@ -21,7 +21,12 @@ def loss_func_ac(data, model, **kwargs):
         s_cr = model.enc_cr(s)
     else:
         s_ac = s_cr = s
-    q_val = model.q(torch.cat([s_cr, torch.tanh(model.mu(s_ac))], dim=-1))
+    action = model.mu(s_ac)
+    if model.discrete:
+        action = F.gumbel_softmax(action, dim=-1, tau=1., hard=True)
+    else:
+        action = torch.tanh(action)
+    q_val = model.q(torch.cat([s_cr, action], dim=-1))
     loss = -q_val.mean()
 
     return loss
