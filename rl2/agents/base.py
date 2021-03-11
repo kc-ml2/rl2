@@ -1,6 +1,5 @@
 from typing import Union, List
 import numpy as np
-import torch
 
 from rl2.models.tf.base import TFModel
 from rl2.models.torch.base import TorchModel
@@ -33,9 +32,7 @@ class Agent:
         self.num_epochs = num_epochs
         # self.device = device
 
-        self.buffer = buffer_cls(
-                size=buffer_kwargs['size'],
-        )
+        self.buffer = buffer_cls(**buffer_kwargs)
         self._hook = None
 
     @property

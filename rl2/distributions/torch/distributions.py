@@ -3,23 +3,25 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions.categorical import Categorical
 import math
+from rl2.networks.torch import MLP
 # from _rl2 import settings
 
 EPS = 1e-8
 
 
 class HeadModule(nn.Module):
-    def __init__(self, input_size, out_size, module):
+    def __init__(self, input_size, out_size, module, depth):
         super().__init__()
+        hidden = [128 for _ in range(depth)]
         if not module:
-            self.linear = nn.Linear(input_size, out_size)
+            self.linear = MLP(input_size, out_size, hidden=hidden)
         else:
             self.linear = module
 
 
 class ScalarHead(HeadModule):
-    def __init__(self, input_size, out_size, module=None):
-        super().__init__(input_size, out_size, module)
+    def __init__(self, input_size, out_size, module=None, depth=0):
+        super().__init__(input_size, out_size, module, depth)
 
     def forward(self, x):
         x = self.linear(x)
@@ -28,8 +30,8 @@ class ScalarHead(HeadModule):
 
 
 class SampleHead(HeadModule):
-    def __init__(self, input_size, out_size, module=None):
-        super().__init__(input_size, out_size, module)
+    def __init__(self, input_size, out_size, module=None, depth=0):
+        super().__init__(input_size, out_size, module, depth)
         # Only handles univariate cases
         assert out_size == 1
 
@@ -40,8 +42,8 @@ class SampleHead(HeadModule):
 
 
 class GumbelSoftmaxHead(HeadModule):
-    def __init__(self, input_size, out_size, module=None):
-        super().__init__(input_size, out_size, module)
+    def __init__(self, input_size, out_size, module=None, depth=0):
+        super().__init__(input_size, out_size, module, depth)
 
     def forward(self, x):
         x = self.linear(x)
@@ -50,8 +52,8 @@ class GumbelSoftmaxHead(HeadModule):
 
 
 class CategoricalHead(HeadModule):
-    def __init__(self, input_size, out_size, module=None):
-        super().__init__(input_size, out_size, module)
+    def __init__(self, input_size, out_size, module=None, depth=0):
+        super().__init__(input_size, out_size, module, depth)
 
     def forward(self, x):
         x = self.linear(x)
@@ -61,8 +63,8 @@ class CategoricalHead(HeadModule):
 
 class DiagGaussianHead(HeadModule):
     def __init__(self, input_size, out_size, min_var=0.0, lim=None,
-                 module=None):
-        super().__init__(input_size, out_size, module)
+                 module=None, depth=0):
+        super().__init__(input_size, out_size, module, depth)
         self.linear = nn.Linear(input_size, out_size * 2)
         self.out_size = out_size
         self.min_var = min_var
@@ -88,8 +90,9 @@ class DiagGaussianHead(HeadModule):
 
 
 class MixtureGaussianHead(HeadModule):
-    def __init__(self, input_size, out_size, n_mix=5, min_var=0, module=None):
-        super().__init__(input_size, out_size, module)
+    def __init__(self, input_size, out_size, n_mix=5, min_var=0, module=None,
+                 depth=0):
+        super().__init__(input_size, out_size, module, depth)
         self.out_size = out_size
         self.n_mix = n_mix
         self.min_var = min_var
