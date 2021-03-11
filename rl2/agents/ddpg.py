@@ -1,33 +1,23 @@
-import copy
 import os
 from pathlib import Path
 from typing import Callable
 
 import numpy as np
 import torch
-import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions import Distribution
 from rl2.agents.base import Agent
 from rl2.buffers.base import ExperienceReplay, ReplayBuffer
-from rl2.models.torch.base import PolicyBasedModel, ValueBasedModel, MyModel
-from rl2.models.torch.base import BranchModel
-from rl2.networks.torch.networks import MLP
+from rl2.models.torch.base import PolicyBasedModel, ValueBasedModel
+from rl2.models.torch.base import InjectiveBranchModel, BranchModel
 
 
 def loss_func_ac(data, model, **kwargs):
     s = torch.from_numpy(data[0]).float().to(model.device)
-    if model.enc_ac is not None:
-        s_ac = model.enc_ac(s)
-        s_cr = model.enc_cr(s)
-    else:
-        s_ac = s_cr = s
-    action = model.mu(s_ac)
-    if model.discrete:
-        action = F.gumbel_softmax(action, dim=-1, tau=1., hard=True)
-    else:
-        action = torch.tanh(action)
-    q_val = model.q(torch.cat([s_cr, action], dim=-1))
+    mu = model.mu(s).mean
+    if not model.discrete:
+        mu = torch.tanh(mu)
+    q_val = model.q(s, mu).mean
     loss = -q_val.mean()
 
     return loss
@@ -37,43 +27,17 @@ def loss_func_cr(data, model, **kwargs):
     s, a, r, d, s_ = tuple(
         map(lambda x: torch.from_numpy(x).float().to(model.device), data)
     )
-    if model.enc_cr is not None:
-        s_cr = model.enc_cr(s)
-        s_ac_ = model.enc_ac_trg(s_)
-        s_cr_ = model.enc_cr_trg(s_)
-    else:
-        s_ac_ = s_cr_ = s_
-
     with torch.no_grad():
-        a_trg = model.mu_trg(s_ac_)
-        if model.discrete:
-            a_trg = F.gumbel_softmax(a_trg, dim=-1, tau=1., hard=True)
-        else:
+        a_trg = model.mu.forward_trg(s_).mean
+        if not model.discrete:
             a_trg = torch.tanh(a_trg)
-        v_trg = model.q_trg(torch.cat([s_cr_, a_trg], dim=-1))
+        v_trg = model.q.forward_trg(s_, a_trg).mean
         bellman_trg = r + kwargs['gamma'] * v_trg * (1-d)
 
-    q = model.q(torch.cat([s_cr, a], dim=-1))
+    q = model.q(s, a).mean
     loss = F.smooth_l1_loss(q, bellman_trg)
 
     return loss
-
-
-class DummyEncoder(nn.Module):
-    def __init__(self, net, reorder, flatten):
-        super().__init__()
-        self.net = net
-        self.reorder = reorder
-        self.flatten = flatten
-
-    def forward(self, obs):
-        if self.net is not None:
-            if self.reorder:
-                obs = obs.permute(0, 3, 1, 2)
-            obs = self.net(obs)
-        elif self.flatten:
-            obs = obs.view(obs.shape[0], -1)
-        return obs
 
 
 class DDPGModel(PolicyBasedModel, ValueBasedModel):
@@ -88,7 +52,7 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
                  actor: torch.nn.Module = None,
                  critic: torch.nn.Module = None,
                  encoder: torch.nn.Module = None,
-                 encoded_dim: int = None,
+                 encoded_dim: int = 64,
                  optim_ac: str = 'torch.optim.Adam',
                  optim_cr: str = 'torch.optim.Adam',
                  lr_ac: float = 1e-4,
@@ -108,6 +72,7 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
             optim_cr = self.optim_cr
 
         self.grad_clip = grad_clip
+        self.discrete = discrete
 
         self.lr_ac = lr_ac
         self.lr_cr = lr_cr
@@ -115,20 +80,26 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
         self.is_save = kwargs.get('is_save', False)
 
         self.mu = BranchModel(observation_shape, action_shape,
-                                  encoded_dim=encoded_dim,
-                                  discrete=discrete,
-                                  deterministic=True,
-                                  flatten=flatten,
-                                  reorder=reorder,
-                                  **kwargs)
+                              encoded_dim=encoded_dim,
+                              discrete=discrete,
+                              deterministic=True,
+                              make_target=True,
+                              flatten=flatten,
+                              reorder=reorder,
+                              default=False,
+                              head_depth=2,
+                              **kwargs)
 
-        self.q = BranchModel(observation_shape, (1,),
-                                 encoded_dim=encoded_dim,
-                                 discrete=False,
-                                 deterministic=True,
-                                 flatten=flatten,
-                                 reorder=reorder,
-                                 **kwargs)
+        self.q = InjectiveBranchModel(observation_shape, (1,), action_shape,
+                                      encoded_dim=encoded_dim,
+                                      discrete=False,
+                                      deterministic=True,
+                                      make_target=True,
+                                      flatten=flatten,
+                                      reorder=reorder,
+                                      default=False,
+                                      head_depth=2,
+                                      **kwargs)
         self.init_params(self.mu)
         self.init_params(self.q)
 
@@ -138,17 +109,24 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
         if not self.discrete:
             action = torch.tanh(action)
         action = action.detach().cpu().numpy()
+
+        self._clean()
         return action
 
     def val(self, obs: np.ndarray, act: np.ndarray) -> np.ndarray:
         # TODO: Currently not using func; remove later
-        obs = torch.from_numpy(obs).float().to(self.device)
-        state = self.enc_cr(obs)
-        action = torch.from_numpy(state).float().to(self.device)
-        value = self.q(torch.cat([state, action], dim=-1))
+        obs = torch.form_numpy(obs).float().to(self.device)
+        act = torch.from_numpy(obs).float().to(self.device)
+        value = self.q(obs, act).mean
         value = value.detach().cpu().numpy()
 
+        self._clean()
         return value
+
+    def _clean(self):
+        for mod in self.children():
+            if isinstance(mod, BranchModel):
+                mod.reset_encoder_memory()
 
     def forward(self, obs) -> Distribution:
         obs = obs.to(self.device)
@@ -157,44 +135,12 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
         action = self.mu(state_ac)
         value = self.q(state_cr, action)
 
+        self._clean()
         return action, value
 
-    def step_ac(self, loss_ac: torch.tensor):
-        if self.enc_ac.net is not None:
-            self.optim_enc_ac.zero_grad()
-        self.optim_ac.zero_grad()
-
-        loss_ac.backward()
-        torch.nn.utils.clip_grad_norm_(
-            self.mu.parameters(), self.grad_clip)
-        torch.nn.utils.clip_grad_norm_(
-            self.enc_ac.parameters(), self.grad_clip)
-
-        self.optim_ac.step()
-        if self.enc_ac.net is not None:
-            self.optim_enc_ac.step()
-
-    def step_cr(self, loss_cr: torch.tensor):
-        if self.enc_cr.net is not None:
-            self.optim_enc_cr.zero_grad()
-        self.optim_cr.zero_grad()
-
-        loss_cr.backward()
-        torch.nn.utils.clip_grad_norm_(
-            self.mu.parameters(), self.grad_clip)
-        torch.nn.utils.clip_grad_norm_(
-            self.enc_cr.parameters(), self.grad_clip)
-
-        self.optim_cr.step()
-        if self.enc_cr.net is not None:
-            self.optim_enc_cr.step()
-
     def update_trg(self):
-        self.polyak_update(self.mu, self.mu_trg, self.polyak)
-        self.polyak_update(self.q, self.q_trg, self.polyak)
-        if self.enc_ac.net is not None and self.enc_cr.net is not None:
-            self.polyak_update(self.enc_ac, self.enc_ac_trg, self.polyak)
-            self.polyak_update(self.enc_cr, self.enc_cr_trg, self.polyak)
+        self.mu.update_trg(alpha=self.polyak)
+        self.q.update_trg(alpha=self.polyak)
 
     def save(self, save_dir):
         torch.save(self.enc_ac.state_dict(),
@@ -234,7 +180,7 @@ class DDPGAgent(Agent):
                  loss_func_ac: Callable = loss_func_ac,
                  loss_func_cr: Callable = loss_func_cr,
                  save_interval: int = int(1e6),
-                 eps: float = 1e-5,
+                 eps: float = 0.1,
                  gamma: float = 0.99,
                  log_interval: int = int(1e3),
                  train_after: int = int(1e3),
@@ -248,7 +194,9 @@ class DDPGAgent(Agent):
 
         self.buffer_size = buffer_size
         if buffer_kwargs is None:
-            buffer_kwargs = {'size': self.buffer_size}
+            buffer_kwargs = {'size': self.buffer_size,
+                             'state_shape': model.observation_shape,
+                             'action_shape': model.action_shape}
 
         super().__init__(model,
                          update_interval,
@@ -257,6 +205,7 @@ class DDPGAgent(Agent):
                          buffer_kwargs)
 
         self.train_interval = train_interval
+        self.update_interval = update_interval
         self.batch_size = batch_size
         self.eps = eps
         self.explore = explore
@@ -266,8 +215,9 @@ class DDPGAgent(Agent):
         self.loss_func_cr = loss_func_cr
         self.gamma = gamma
         self.log_interval = log_interval
-        self.logger = kwargs['logger']
-        self.log_dir = self.logger.log_dir
+        self.logger = kwargs.get('logger')
+        if self.logger:
+            self.log_dir = self.logger.log_dir
         self.train_after = train_after
         self.update_after = update_after
 
@@ -276,12 +226,12 @@ class DDPGAgent(Agent):
             obs = np.expand_dims(obs, axis=0)
         action = self.model.act(obs)
         if self.model.discrete:
-            # epsilon greedy action selection
-            if self.explore and np.random.random() < self.eps:
-                action = np.random.randint(self.model.action_shape[0])
-                action = np.array(action)
-            else:
-                action = np.array(np.argmax(action, axis=-1))
+            action = np.argmax(action, axis=-1)
+            if self.explore:
+                if np.random.random() < self.eps:
+                    action = np.random.randint(self.model.action_shape[0],
+                                               size=action.shape)
+            action = action.squeeze()
         else:
             if self.explore:
                 action += self.eps * np.random.randn(*action.shape)
@@ -310,10 +260,10 @@ class DDPGAgent(Agent):
         for _ in range(self.num_epochs):
             batch = self.buffer.sample(self.batch_size)
             cl = self.loss_func_cr(batch, self.model, gamma=self.gamma)
-            self.model.step_cr(cl)
+            self.model.q.step(cl)
 
             al = self.loss_func_ac(batch, self.model)
-            self.model.step_ac(al)
+            self.model.mu.step(al)
 
         info = {
             'Loss/Actor': al.item(),
@@ -324,4 +274,6 @@ class DDPGAgent(Agent):
 
     def collect(self, s, a, r, d, s_):
         self.curr_step += 1
+        if self.model.discrete:
+            a = np.eye(self.model.action_shape[0])[a]
         self.buffer.push(s, a, r, d, s_)
