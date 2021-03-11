@@ -37,16 +37,16 @@ class ConvEnc(nn.Module):
             mod_list.append(nn.MaxPool2d(2, stride=2))
             prev_channel = next_channel
         self.conv = nn.Sequential(*mod_list)
-        dummy = torch.zeros(*in_shape)
+        dummy = torch.zeros(1, *in_shape)
         with torch.no_grad():
             conv_dim = self.conv(dummy).flatten().shape[-1]
-        self.fc = nn.Linear(conv_dim, encoded_dim)
-        self.activ = getattr(nn, activ)
+        activ = getattr(nn, activ)()
+        self.fc = nn.Sequential(nn.Linear(conv_dim, encoded_dim), activ)
 
     def forward(self, x):
         x = self.conv(x)
-        x = x.view(x.shape[0], -1)
-        x = self.activ(self.fc(x))
+        x = x.reshape(x.shape[0], -1)
+        x = self.fc(x)
 
         return x
 

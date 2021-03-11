@@ -11,6 +11,7 @@ from torch.distributions import Distribution
 from rl2.agents.base import Agent
 from rl2.buffers.base import ExperienceReplay, ReplayBuffer
 from rl2.models.torch.base import PolicyBasedModel, ValueBasedModel, MyModel
+from rl2.models.torch.base import BranchModel
 from rl2.networks.torch.networks import MLP
 
 
@@ -82,7 +83,7 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
                  actor: torch.nn.Module = None,
                  critic: torch.nn.Module = None,
                  encoder: torch.nn.Module = None,
-                 encoder_dim: int = None,
+                 encoded_dim: int = None,
                  optim_ac: str = 'torch.optim.Adam',
                  optim_cr: str = 'torch.optim.Adam',
                  lr_ac: float = 1e-4,
@@ -108,59 +109,28 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
         self.polyak = polyak
         self.is_save = kwargs.get('is_save', False)
 
-        obs_dim = observation_shape[0]
-        self.enc_ac = DummyEncoder(encoder, reorder, flatten)
-        self.enc_cr = DummyEncoder(encoder, reorder, flatten)
-        self.enc_ac_trg = copy.deepcopy(self.enc_ac)
-        self.enc_cr_trg = copy.deepcopy(self.enc_cr)
-        self.discrete = discrete
-        if len(observation_shape) == 3:
-            assert encoder is not None, 'Must provide an encoder for 2d input'
-            assert encoder_dim is not None
+        self.mu = BranchModel(observation_shape, action_shape,
+                                  encoded_dim=encoded_dim,
+                                  discrete=discrete,
+                                  deterministic=True,
+                                  flatten=flatten,
+                                  reorder=reorder,
+                                  **kwargs)
 
-            self.optim_enc_ac, self.enc_ac_trg = self._make_optim_target(
-                self.enc_ac, optim_ac
-            )
-            self.optim_enc_cr, self.enc_cr_trg = self._make_optim_target(
-                self.enc_cr, optim_cr
-            )
-            obs_dim = encoder_dim
-        self.mu, self.optim_ac, self.mu_trg = self._make_mlp_optim_target(
-            actor, obs_dim, action_shape[0], optim_ac, lr=self.lr_ac
-        )
-        self.q, self.optim_cr, self.q_trg = self._make_mlp_optim_target(
-            critic, obs_dim + action_shape[0], 1, optim_cr, lr=self.lr_cr
-        )
-        self.to(self.device)
-
-    def _make_mlp_optim_target(self, network,
-                               num_input, num_output, optim_name, **kwargs):
-        lr = kwargs.get('lr', 1e-4)  # Form a optim args elsewhere
-        if network is None:
-            network = MLP(in_shape=num_input, out_shape=num_output,
-                          hidden=[128, 128])
-        optimizer, target_network = self._make_optim_target(network,
-                                                            optim_name,
-                                                            lr=lr)
-        return network, optimizer, target_network
-
-    def _make_optim_target(self, network, optim_name, **optim_args):
-        self.init_params(network)
-        optimizer = self.get_optimizer_by_name(
-            modules=[network], optim_name=optim_name, **optim_args)
-        target_network = copy.deepcopy(network)
-        for param in target_network.parameters():
-            param.requires_grad = False
-
-        return optimizer, target_network
+        self.q = BranchModel(observation_shape, (1,),
+                                 encoded_dim=encoded_dim,
+                                 discrete=False,
+                                 deterministic=True,
+                                 flatten=flatten,
+                                 reorder=reorder,
+                                 **kwargs)
+        self.init_params(self.mu)
+        self.init_params(self.q)
 
     def act(self, obs: np.array) -> np.ndarray:
         obs = torch.from_numpy(obs).float().to(self.device)
-        obs = self.enc_ac(obs)
-        action = self.mu(obs)
-        if self.discrete:
-            action = F.softmax(action, dim=-1)
-        else:
+        action = self.mu(obs).mean
+        if not self.discrete:
             action = torch.tanh(action)
         action = action.detach().cpu().numpy()
         return action

@@ -1,15 +1,24 @@
 import gym
+import marlenv
+from marlenv.wrappers import SingleAgent
 from rl2.agents.ppo import PPOModel, PPOAgent
 from rl2.workers import MaxStepWorker
 
 
 env = gym.make("CartPole-v0")
+reorder = False
+
+# env = gym.make("Snake-v1", num_snakes=1)
+# env = SingleAgent(env)
+# reorder = True
+
 observation_shape = env.observation_space.shape
 action_shape = (env.action_space.n,)
 
 model = PPOModel(observation_shape,
                  action_shape,
-                 discrete=True)
+                 discrete=True,
+                 reorder=True)
 
 train_interval = 512
 num_env = 1
@@ -21,7 +30,7 @@ agent = PPOAgent(model,
                  num_epochs=train_interval // batch_size * epoch,
                  buffer_kwargs={'size': train_interval * num_env})
 
-worker = MaxStepWorker(env, agent, max_steps=int(1e6), training=True)
+worker = MaxStepWorker(env, agent, max_steps=int(2e5), training=True)
 
 worker.run()
 
