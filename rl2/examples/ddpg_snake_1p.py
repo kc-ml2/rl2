@@ -153,17 +153,6 @@ class Logger:
         return s[:20] + '...' if len(s) > 23 else s
 
 
-env = gym.make('Snake-v1', num_snakes=1, num_fruits=20)
-env = marlenv.wrappers.SingleAgent(env)
-
-# check Continuous or Discrete
-if 'Discrete' in str(type(env.action_space)):
-    action_n = env.action_space.n
-
-if 'Box' in str(type(env.action_space)):
-    action_low = env.action_space.low
-    action_high = env.action_space.high
-
 # Use Default config
 config = DEFAULT_DDPG_CONFIG
 
@@ -187,10 +176,29 @@ myconfig = {
     'loss_fn': 'mse_loss',  # 'smoothl1loss'
     'log_dir': './runs',
     'tag': 'DDPG/SNAKE',
-    'log_level': 10
+    'log_level': 10,
+    'max_episodes': 1e9,
+    'max_steps_per_ep': 1e4,
+    'custom_rew': {'fruit': 10.0,
+                   'kill': 0.0,
+                   'lose': -10.0,
+                   'win': 0.0,
+                   'time': 0.01}
 }
 
 config = EasyDict(myconfig)
+
+env = gym.make('Snake-v1', num_snakes=1, num_fruits=20,
+               reward_dict=config.custom_rew)
+env = marlenv.wrappers.SingleAgent(env)
+
+# check Continuous or Discrete
+if 'Discrete' in str(type(env.action_space)):
+    action_n = env.action_space.n
+
+if 'Box' in str(type(env.action_space)):
+    action_low = env.action_space.low
+    action_high = env.action_space.high
 
 
 class Encoder(nn.Module):
@@ -241,7 +249,7 @@ if __name__ == '__main__':
                       polyak=config.polyak,
                       reorder=True,
                       discrete=True,
-                      is_save=True)
+                      is_save=False)
 
     agent = DDPGAgent(model,
                       action_n=action_n,
@@ -257,11 +265,10 @@ if __name__ == '__main__':
     worker = EpisodicWorker(env=env,
                             agent=agent,
                             training=True,
-                            max_episodes=1e4,
-                            max_steps_per_ep=1e3,
+                            max_episodes=config.max_episodes,
+                            max_steps_per_ep=config.max_steps_per_ep,
                             log_interval=config.log_interval,
                             render=False,
-                            logger=logger,
-                            config=config)
+                            logger=logger)
 
     worker.run()

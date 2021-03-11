@@ -133,12 +133,14 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
             self.enc_ac, self.enc_cr, self.enc_ac_trg, self.enc_cr_trg = map(
                 lambda x: x.to(self.device),
                 [self.enc_ac, self.enc_cr, self.enc_ac_trg, self.enc_cr_trg])
+        # create networks and optim
         self.mu, self.optim_ac, self.mu_trg = self._make_mlp_optim_target(
             actor, obs_dim, action_shape[0], optim_ac, lr=self.lr_ac
         )
         self.q, self.optim_cr, self.q_trg = self._make_mlp_optim_target(
             critic, obs_dim + action_shape[0], 1, optim_cr, lr=self.lr_cr
         )
+        # send to device
         self.mu, self.mu_trg, self.q, self.q_trg = map(
             lambda x: x.to(self.device),
             [self.mu, self.mu_trg, self.q, self.q_trg]
@@ -167,8 +169,8 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
 
     def act(self, obs: np.array) -> np.ndarray:
         obs = torch.from_numpy(obs).float().to(self.device)
-        obs = self.enc_ac(obs)
-        action = self.mu(obs)
+        state = self.enc_ac(obs)
+        action = self.mu(state)
         if self.discrete:
             action = F.gumbel_softmax(action, dim=-1, tau=1.0, hard=True)
         else:
@@ -178,10 +180,10 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
 
     def val(self, obs: np.ndarray, act: np.ndarray) -> np.ndarray:
         # TODO: Currently not using func; remove later
-        obs = torch.form_numpy(obs).float().to(self.device)
-        obs = self.enc_cr(obs)
-        act = torch.from_numpy(obs).float()
-        value = self.q(torch.cat([obs, act], dim=-1))
+        obs = torch.from_numpy(obs).float().to(self.device)
+        state = self.enc_cr(obs)
+        action = torch.from_numpy(state).float().to(self.device)
+        value = self.q(torch.cat([state, action], dim=-1))
         value = value.detach().cpu().numpy()
 
         return value
@@ -191,7 +193,6 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
         state_ac = self.enc_ac(obs)
         state_cr = self.enc_cr(obs)
         action = self.mu(state_ac)
-        # act = ac_dist.mean
         value = self.q(state_cr, action)
 
         return action, value
@@ -315,11 +316,8 @@ class DDPGAgent(Agent):
         if self.model.discrete:
             # epsilon greedy action selection
             if self.explore and np.random.random() < self.eps:
-                _action = []
-                for ac in action:
-                    _action.append(np.random.randint(
-                        self.model.action_shape[0]))
-                action = np.array(_action).item()
+                action = np.random.randint(self.model.action_shape[0])
+                action = np.array(action)
             else:
                 action = np.array(np.argmax(action, axis=-1))
         else:
