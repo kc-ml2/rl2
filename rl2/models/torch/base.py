@@ -185,7 +185,7 @@ class BaseEncoder(nn.Module):
 
     def forward(self, x):
         if self.reorder or self.flatten:
-            assert len(x.shape) > 2, "Dimension of input too small for encoder"
+            assert len(x.shape) > 3, "Dimension of input too small for encoder"
         input_id = id(x)
         if input_id in self.memory:
             return self.memory[input_id]
@@ -263,11 +263,17 @@ class BranchModel(TorchModel):
             if reorder and len(observation_shape) < 2:
                 raise ValueError("Cannont reorder a input dimension < 2")
             return BaseEncoder(encoder, reorder, False)
-        if len(observation_shape) == 2:
+        if len(observation_shape) == 3:
             if flatten:
                 return BaseEncoder(encoder, False, flatten)
             else:
                 # Build a default convnet
+                if reorder:
+                    observation_shape = (
+                        observation_shape[2],
+                        observation_shape[0],
+                        observation_shape[1],
+                    )
                 encoder = ConvEnc(observation_shape, encoded_dim)
                 return BaseEncoder(encoder, reorder, flatten)
         elif len(observation_shape) == 1:
@@ -277,7 +283,7 @@ class BranchModel(TorchModel):
             return BaseEncoder(encoder, False, False)
         else:
             raise ValueError("Cannot create a default encoder for "
-                             "observation of dimension > 2")
+                             "observation of dimension > 3 or 2")
 
     def _handle_head(self, head, action_shape, encoded_dim,
                      discrete, deterministic):
@@ -313,6 +319,8 @@ class BranchModel(TorchModel):
 
     def forward(self, observation):
         # TODO: check for shared memory of the same trace
+        if len(observation.shape) == len(self.observation_shape):
+            observation = observation.unsqueeze(0)
         ir = self.encoder(observation)
         # ir = torch.cat(ir)
         output = self.head(ir)
@@ -321,6 +329,8 @@ class BranchModel(TorchModel):
 
     def infer(self, observation):
         obs = observation.from_numpy().to(self.device)
+        if len(observation.shape) == len(self.observation_shape):
+            observation = observation.unsqueeze(0)
         output = self.forward(obs)
         output = output.detach().cpu().numpy()
 

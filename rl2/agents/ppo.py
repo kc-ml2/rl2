@@ -97,7 +97,7 @@ class PPOModel(TorchModel):
     def act(self, obs: np.ndarray, get_log_prob=False) -> np.ndarray:
         obs = torch.from_numpy(obs).float().to(self.device)
         action_dist = self.policy(obs)
-        action = action_dist.sample()
+        action = action_dist.sample().squeeze()
         if get_log_prob:
             log_prob = action_dist.log_prob(action)
             log_prob = log_prob.detach().cpu().numpy()
@@ -110,7 +110,7 @@ class PPOModel(TorchModel):
 
     def val(self, obs: np.ndarray) -> np.ndarray:
         obs = torch.from_numpy(obs).float().to(self.device)
-        value = self.value(obs).mean
+        value = self.value(obs).mean.squeeze()
         value = value.detach().cpu().numpy()
 
         self._clean()
