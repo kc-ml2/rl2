@@ -21,7 +21,12 @@ def loss_func_ac(data, model, **kwargs):
         s_cr = model.enc_cr(s)
     else:
         s_ac = s_cr = s
-    q_val = model.q(torch.cat([s_cr, torch.tanh(model.mu(s_ac))], dim=-1))
+    action = model.mu(s_ac)
+    if model.discrete:
+        action = F.gumbel_softmax(action, dim=-1, tau=1., hard=True)
+    else:
+        action = torch.tanh(action)
+    q_val = model.q(torch.cat([s_cr, action], dim=-1))
     loss = -q_val.mean()
 
     return loss
@@ -41,7 +46,7 @@ def loss_func_cr(data, model, **kwargs):
     with torch.no_grad():
         a_trg = model.mu_trg(s_ac_)
         if model.discrete:
-            a_trg = F.gumbel_softmax(a_trg, tau=1., hard=True)
+            a_trg = F.gumbel_softmax(a_trg, dim=-1, tau=1., hard=True)
         else:
             a_trg = torch.tanh(a_trg)
         v_trg = model.q_trg(torch.cat([s_cr_, a_trg], dim=-1))
@@ -128,19 +133,18 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
             self.enc_ac, self.enc_cr, self.enc_ac_trg, self.enc_cr_trg = map(
                 lambda x: x.to(self.device),
                 [self.enc_ac, self.enc_cr, self.enc_ac_trg, self.enc_cr_trg])
+        # create networks and optim
         self.mu, self.optim_ac, self.mu_trg = self._make_mlp_optim_target(
             actor, obs_dim, action_shape[0], optim_ac, lr=self.lr_ac
         )
         self.q, self.optim_cr, self.q_trg = self._make_mlp_optim_target(
             critic, obs_dim + action_shape[0], 1, optim_cr, lr=self.lr_cr
         )
+        # send to device
         self.mu, self.mu_trg, self.q, self.q_trg = map(
             lambda x: x.to(self.device),
             [self.mu, self.mu_trg, self.q, self.q_trg]
         )
-        self.mu, self.q, self.mu_trg, self.q_trg = map(
-            lambda x: x.to(self.device),
-            [self.mu, self.q, self.mu_trg, self.q_trg])
 
     def _make_mlp_optim_target(self, network,
                                num_input, num_output, optim_name, **kwargs):
@@ -165,10 +169,10 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
 
     def act(self, obs: np.array) -> np.ndarray:
         obs = torch.from_numpy(obs).float().to(self.device)
-        obs = self.enc_ac(obs)
-        action = self.mu(obs)
+        state = self.enc_ac(obs)
+        action = self.mu(state)
         if self.discrete:
-            action = F.softmax(action, dim=-1)
+            action = F.gumbel_softmax(action, dim=-1, tau=1.0, hard=True)
         else:
             action = torch.tanh(action)
         action = action.detach().cpu().numpy()
@@ -176,10 +180,10 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
 
     def val(self, obs: np.ndarray, act: np.ndarray) -> np.ndarray:
         # TODO: Currently not using func; remove later
-        obs = torch.form_numpy(obs).float().to(self.device)
-        obs = self.enc_cr(obs)
-        act = torch.from_numpy(obs).float()
-        value = self.q(torch.cat([obs, act], dim=-1))
+        obs = torch.from_numpy(obs).float().to(self.device)
+        state = self.enc_cr(obs)
+        action = torch.from_numpy(state).float().to(self.device)
+        value = self.q(torch.cat([state, action], dim=-1))
         value = value.detach().cpu().numpy()
 
         return value
@@ -189,7 +193,6 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
         state_ac = self.enc_ac(obs)
         state_cr = self.enc_cr(obs)
         action = self.mu(state_ac)
-        # act = ac_dist.mean
         value = self.q(state_cr, action)
 
         return action, value
@@ -232,17 +235,25 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
             self.polyak_update(self.enc_cr, self.enc_cr_trg, self.polyak)
 
     def save(self, save_dir):
+        torch.save(self.enc_ac.state_dict(),
+                   os.path.join(save_dir, 'enc_ac.pt'))
+        torch.save(self.enc_cr.state_dict(),
+                   os.path.join(save_dir, 'enc_ac.pt'))
         torch.save(self.mu.state_dict(), os.path.join(save_dir, 'actor.pt'))
         torch.save(self.q.state_dict(), os.path.join(save_dir, 'critic.pt'))
         print(f'model saved in {save_dir}')
 
     def load(self, load_dir):
-        ckpt = torch.load(
-            load_dir,
-            map_location=self.device
-        )
-        self.model.mu.load_state_dict(ckpt)
-        self.model.q.load_state_dict(ckpt)
+        # TODO: load pretrained model
+        # ckpt = torch.load(
+        #     os.path.join(load_dir, 'enc_ac.pt'),
+        #     map_location=self.device
+        # )
+        # self.enc_ac.load_state_dict(ckpt)
+        # self.mu.load_state_dict(ckpt)
+        # self.enc_cr.load_state_dict(ckpt)
+        # self.q.load_state_dict(ckpt)
+        pass
 
 
 class DDPGAgent(Agent):
@@ -260,7 +271,7 @@ class DDPGAgent(Agent):
                  action_high: np.ndarray = None,
                  loss_func_ac: Callable = loss_func_ac,
                  loss_func_cr: Callable = loss_func_cr,
-                 save_interval: int = int(1e5),
+                 save_interval: int = int(1e6),
                  eps: float = 1e-5,
                  gamma: float = 0.99,
                  log_interval: int = int(1e3),
@@ -300,21 +311,19 @@ class DDPGAgent(Agent):
 
     def act(self, obs: np.ndarray) -> np.ndarray:
         if len(obs.shape) in (1, 3):
-            np.expand_dims(obs, axis=0)
+            obs = np.expand_dims(obs, axis=0)
         action = self.model.act(obs)
         if self.model.discrete:
-            if self.explore:
-                _action = []
-                for ac in action:
-                    _action.append(np.random.choice(np.arange(len(ac)), p=ac))
-                action = np.array(_action)
+            # epsilon greedy action selection
+            if self.explore and np.random.random() < self.eps:
+                action = np.random.randint(self.model.action_shape[0])
+                action = np.array(action)
             else:
-                action = np.max(action, axis=-1)
+                action = np.array(np.argmax(action, axis=-1))
         else:
             if self.explore:
                 action += self.eps * np.random.randn(*action.shape)
-
-        action = np.clip(action, self.action_low, self.action_high)
+            action = np.clip(action, self.action_low, self.action_high)
 
         return action
 
