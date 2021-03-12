@@ -6,6 +6,7 @@ import math
 from rl2.networks.torch import MLP
 # from _rl2 import settings
 
+
 EPS = 1e-8
 
 
@@ -131,7 +132,8 @@ class GumbelSoftmaxDist(torch.distributions.Distribution):
 
     @property
     def mean(self):
-        return F.gumbel_softmax(self.logits, tau=1.0, hard=True)
+        return F.softmax(self.logits, dim=-1)
+        # return F.gumbel_softmax(self.logits, dim=-1, tau=1.0, hard=False)
 
 
 def MixedDist(main_dist, aux_dists):

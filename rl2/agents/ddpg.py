@@ -40,6 +40,32 @@ def loss_func_cr(data, model, **kwargs):
     return loss
 
 
+def loss_func_cr_mix(data, model, **kwargs):
+    sample_size = 32
+    num_action = data[1].shape[-1]
+    samples = np.random.dirichlet(np.ones(num_action), sample_size)
+    a = np.eye(num_action)
+    s = data[0]
+    num_batch = data[0].shape[0]
+
+    s, a, samples = tuple(
+        map(lambda x: torch.from_numpy(x).float().to(model.device),
+            [s, a, samples])
+    )
+    with torch.no_grad():
+        s_r = s.repeat_interleave(num_action, dim=0)
+        a = a.repeat(num_batch, 1)
+
+        q = model.q(s_r, a).mean
+        q = q.reshape(num_batch, -1)
+
+        q_mixed = (q * samples).sum(-1, keepdim=True)
+    q_int = model.q(s, samples).mean
+    loss = F.mse_loss(q_int, q_mixed)
+
+    return loss
+
+
 class DDPGModel(PolicyBasedModel, ValueBasedModel):
     """
     predefined model
@@ -167,7 +193,7 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
 class DDPGAgent(Agent):
     def __init__(self,
                  model: DDPGModel,
-                 update_interval: int = 1,
+                 update_interval: int = 1000,
                  train_interval: int = 1,
                  num_epochs: int = 1,
                  buffer_cls: ReplayBuffer = ExperienceReplay,
@@ -191,6 +217,7 @@ class DDPGAgent(Agent):
             self.loss_func_cr = loss_func_cr
         if loss_func_ac is None:
             self.loss_func_ac = loss_func_ac
+        self.loss_func_cr_mix = loss_func_cr_mix
 
         self.buffer_size = buffer_size
         if buffer_kwargs is None:
@@ -261,6 +288,8 @@ class DDPGAgent(Agent):
             batch = self.buffer.sample(self.batch_size)
             cl = self.loss_func_cr(batch, self.model, gamma=self.gamma)
             self.model.q.step(cl)
+            # cl_mix = self.loss_func_cr_mix(batch, self.model)
+            # self.model.q.step(cl_mix)
 
             al = self.loss_func_ac(batch, self.model)
             self.model.mu.step(al)
