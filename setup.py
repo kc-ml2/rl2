@@ -1,9 +1,11 @@
-from setuptools import setup
+from setuptools import setup, find_packages
 
-# TODO: add openai/baselines
-# TODO: add torch (version1.4)
 setup(
-    name="rl2",
+    name='rl2',
+    version='0.0.0',
+    url='https://github.com/kc-ml2/rl2',
+    author_email='contact@kc-ml2.com',
+    packages=find_packages(),
     install_requires=[
         'tqdm',
         'termcolor',
@@ -13,6 +15,9 @@ setup(
         'sklearn',
         'psutil',
         'mpi4py',
-        'easydict'
+        'easydict',
+        'torch',
     ]
 )
+
+
