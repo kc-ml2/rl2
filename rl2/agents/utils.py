@@ -27,3 +27,27 @@ def general_advantage_estimation(trajectories: dict, value_p, done_p,
         advs[t] = gae
 
     return advs
+
+
+class ExponentialDecay:
+    def __init__(self, start=0.9, end=0.01, decay_const=1e-2):
+        self.start = start
+        self.end = end
+        self.decay_const = decay_const
+
+    def __call__(self, curr_step):
+        out = self.start * (np.e ** -(self.decay_const * curr_step))
+        out = np.max((out, self.end))
+        return out
+
+
+class LinearDecay:
+    def __init__(self, start=0.9, end=0.01, decay_step=1e2):
+        self.start = start
+        self.end = end
+        self.decay_step = decay_step
+
+    def __call__(self, curr_step):
+        alpha = min(curr_step/self.decay_step, 1)
+        out = ((1-alpha)*self.start) + (alpha*self.end)
+        return out
