@@ -1,6 +1,8 @@
 from typing import Optional
 from easydict import EasyDict
 from collections import deque
+from collections.abc import Iterable
+import numpy as np
 from rl2.agents.base import Agent
 from torch.utils.tensorboard import SummaryWriter
 
@@ -18,18 +20,22 @@ class RolloutWorker:
     def __init__(
             self,
             env,
+            n_env,
             agent: Agent,
             training=False,
             render=False,
             # render_mode: str ='human',
     ):
         self.env = env
+        self.n_env = n_env
         self.agent = agent
         self.training = training
         self.render = render
         # self.render_mode = render_mode
         self.num_episodes = 0
         self.num_steps = 0
+        self.scores = deque(maxlen=100)
+        self.episode_score = 0
 
         self.obs = env.reset()
 
@@ -45,7 +51,12 @@ class RolloutWorker:
         if self.training:
             info_a = self.agent.step(self.obs, ac, rew, done, obs)
             if info:
-                info = {**info, **info_a}
+                if isinstance(info, dict):
+                    info = {**info, **info_a}
+                elif isinstance(info, list) or isinstance(info, tuple):
+                    info = {**info_a}
+                    for env_i, info_i in enumerate(info):
+                        info['env_{}'.format(env_i)] = info_i
             else:
                 info = {**info_a}
             # task_list = self.agent.dispatch()
@@ -56,10 +67,22 @@ class RolloutWorker:
             if self.render:
                 # how to deal with render mode?
                 self.env.render()
-        self.num_steps += 1
-        if done:  # do sth about ven env
-            self.num_episodes += 1
-            obs = self.env.reset()
+        self.num_steps += self.n_env
+        self.episode_score = self.episode_score + np.array(rew)
+        if isinstance(done, Iterable):
+            if any(done):
+                self.num_episodes += sum(done)
+                for d_i, d in enumerate(done):
+                    if d:
+                        self.scores.append(self.episode_score[d_i])
+                        self.episode_score[d_i] = 0.0
+
+        else:
+            if done:  # do sth about ven env
+                self.num_episodes += 1
+                obs = self.env.reset()
+                self.scores.append(self.episode_score)
+                self.episode_score = 0.
         # Update next obs
         self.obs = obs
         info = {**info, **{'rew': rew}}
@@ -73,30 +96,20 @@ class MaxStepWorker(RolloutWorker):
     do rollout until max steps given
     """
 
-    def __init__(self, env, agent,
+    def __init__(self, env, n_env, agent,
                  max_steps: int, **kwargs):
-        super().__init__(env, agent, **kwargs)
+        super().__init__(env, n_env, agent, **kwargs)
         self.max_steps = int(max_steps)
-        self.scores = deque(maxlen=100)
-        self.num_episodes = 0
-        self.log_step = 10000
+        self.log_step = 5000
 
     def run(self):
         episode_score = 0.0
-        for step in range(self.max_steps):
+        for step in range(self.max_steps // self.n_env + 1):
             done, info, results = self.rollout()
 
-            episode_score += info['rew']
-            # TODO: when done do sth like logging from results
-            # TODO: handle vecenv cases
-            if done:
-                self.scores.append(episode_score)
-                episode_score = 0.0
-                self.num_episodes += 1
-
-            if step % self.log_step == 0 and self.num_episodes > 0:
+            if step * self.n_env % self.log_step < self.n_env and self.num_episodes > 0:
                 avg_score = sum(list(self.scores)) / len(list(self.scores))
-                print(step, self.num_episodes, avg_score)
+                print(step * self.n_env, self.num_episodes, avg_score)
 
 
 class EpisodicWorker(RolloutWorker):
@@ -105,13 +118,13 @@ class EpisodicWorker(RolloutWorker):
     might be useful at inference time or when training episodically
     """
 
-    def __init__(self, env, agent,
+    def __init__(self, env, n_env, agent,
                  max_episodes: int = 10,
                  max_steps_per_ep: int = 1e4,
                  log_interval: int = 1000,
                  logger=None,
                  **kwargs):
-        super().__init__(env, agent, **kwargs)
+        super().__init__(env, n_env, agent, **kwargs)
         self.max_episodes = int(max_episodes)
         self.max_steps_per_ep = int(max_steps_per_ep)
         self.log_interval = log_interval

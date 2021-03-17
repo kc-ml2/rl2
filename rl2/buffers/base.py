@@ -19,8 +19,8 @@ class ReplayBuffer:
         if isinstance(elements, dict):
             self.keys = elements.keys()
             self.specs = elements.values()
-        elif isinstance(elements, set):
-            self.keys = list(elements)
+        elif isinstance(elements, list):
+            self.keys = elements
             self.specs = None
         else:
             raise ValueError("Elements can only be a dictionary or a set")
@@ -146,29 +146,34 @@ class ExperienceReplay(ReplayBuffer):
         return tuple(output)
 
 
-
 class TemporalMemory(ReplayBuffer):
-    def __init__(self, size=1):
+    def __init__(self, size=1, n_env=1):
         super().__init__(
-            size, elements={
+            size, elements=[
                 'state',
                 'action',
                 'reward',
                 'done',
                 'value',
                 'nlp'
-            }
+            ]
         )
+        self.n_env = n_env
 
     def push(self, s, a, r, d, v, nlp):
         super().push(state=s, action=a, reward=r, done=d, value=v, nlp=nlp)
 
     def sample(self, num, idx=None, return_idx=False):
         transitions = super().sample(num, idx=idx, return_idx=return_idx)
+        rand_idx = np.random.randint(self.n_env)
         output = [transitions.state, transitions.action, transitions.reward,
                   transitions.done, transitions.value, transitions.nlp]
+        if self.n_env > 1:
+            output = list(map(lambda x: np.expand_dims(x[:, rand_idx], axis=1)
+                              if len(x.shape) == 2 else x[:, rand_idx], output)
+                          )
         if return_idx:
-            output.append(transitions.idx)
+            output.append((transitions.idx, rand_idx))
 
         return tuple(output)
 

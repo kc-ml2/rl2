@@ -20,7 +20,7 @@ class MLP(nn.Module):
 
 
 class ConvEnc(nn.Module):
-    def __init__(self, in_shape, encoded_dim, activ='ReLU'):
+    def __init__(self, in_shape, encoded_dim, high=255, activ='ReLU'):
         super().__init__()
         assert len(in_shape) == 3
         # Assume the input is (C, H, W)
@@ -43,7 +43,10 @@ class ConvEnc(nn.Module):
         activ = getattr(nn, activ)()
         self.fc = nn.Sequential(nn.Linear(conv_dim, encoded_dim), activ)
 
+        self.norm = high
+
     def forward(self, x):
+        x = x / 1.
         x = self.conv(x)
         x = x.reshape(x.shape[0], -1)
         x = self.fc(x)

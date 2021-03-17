@@ -128,6 +128,7 @@ class PPOAgent(Agent):
                  model: TorchModel,
                  train_interval: int = 128,
                  num_epochs: int = 1,
+                 n_env=1,
                  buffer_cls: ReplayBuffer = TemporalMemory,
                  buffer_kwargs: dict = None,
                  batch_size: int = 128,
@@ -145,8 +146,12 @@ class PPOAgent(Agent):
                          buffer_cls, buffer_kwargs, **kwargs)
         self.model = model
 
+        self.n_env = n_env
         self.obs = None
-        self.done = False
+        if self.n_env == 1:
+            self.done = False
+        else:
+            self.done = [False] * n_env
         self.value = None
         self.nlp = None
         self.loss_func = loss_func
@@ -180,8 +185,9 @@ class PPOAgent(Agent):
     def train(self, advs, **kwargs):
         for _ in range(self.num_epochs):
             batch_data = self.buffer.sample(self.batch_size, return_idx=True)
-            idx = batch_data[-1]
-            batch_data = (*batch_data[:-1], advs[idx])
+            idx, sub_idx = batch_data[-1]
+            batch_data = (*batch_data[:-1],
+                          np.expand_dims(advs[idx, sub_idx], axis=1))
             loss = self.loss_func(batch_data, self.model)
             self.model.policy.step(loss, retain_graph=True)
             self.model.value.step(loss)
