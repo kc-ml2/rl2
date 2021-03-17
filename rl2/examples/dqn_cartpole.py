@@ -11,7 +11,7 @@ observation_shape = env.observation_space.shape
 action_shape = (env.action_space.n,)
 myconfig = {
     'log_dir': './runs',
-    'tag': 'DQN/snake',
+    'tag': 'DQN/cartpole',
     'log_level': 10
 }
 
@@ -23,11 +23,12 @@ def dqn():
     model = DQNModel(observation_shape,
                      action_shape,
                      optim='torch.optim.Adam',
-                     discrete=True,
-                     default=True)
+                     defalut=True,
+                     )
     agent = DQNAgent(model,
                      buffer_size=100000,
-                     update_interval=100,
+                     decay_step=10000,
+                     update_interval=1000,
                      )
     return agent
 
@@ -35,14 +36,22 @@ def dqn():
 def ddqn():
     model = DQNModel(observation_shape,
                      action_shape,
-                     double=True,)
-    agent = DQNAgent(model)
+                     double=True,
+                     default=True,
+                     )
+    agent = DQNAgent(model,
+                     buffer_size=100000,
+                     decay_step=100000,
+                     update_interval=1000,
+                     )
+    print("ddqn w enc decay_step 100k")
+
     return agent
 
 
 def main():
-    agent = dqn()
-    worker = MaxStepWorker(env, agent, max_steps=int(2e5), training=True)
+    agent = ddqn()
+    worker = MaxStepWorker(env, agent, max_steps=int(1e6), training=True)
     worker.run()
 
 

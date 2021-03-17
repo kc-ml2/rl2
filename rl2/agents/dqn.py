@@ -15,16 +15,18 @@ def loss_func(data, model, **kwargs):
         map(lambda x: torch.from_numpy(x).float().to(model.device), data)
     )
     with torch.no_grad():
-        if not model.double:
+        if model.double:
+            a_ = torch.argmax(model.q(s_).mean, dim=-1, keepdim=True)
+            v_trg = torch.gather(model.q.forward_trg(s_).mean,
+                                 dim=-1, index=a_)
+        else:
             v_trg = torch.max(model.q.forward_trg(s_).mean,
                               dim=-1, keepdim=True).values
-        else:
-            a_ = torch.argmax(model.q(s_).mean, dim=-1, keepdim=True)
-            v_trg = model.q.forward_trg(s_).mean.gather(-1, a_)
         bellman_trg = r + kwargs['gamma'] * v_trg * (1-d)
 
     q = torch.sum((model.q(s).mean * a), dim=-1, keepdim=True)
-    loss = F.smooth_l1_loss(q, bellman_trg)
+    # loss = F.smooth_l1_loss(q, bellman_trg)
+    loss = F.mse_loss(q, bellman_trg)
 
     return loss
 
@@ -78,7 +80,6 @@ class DQNModel(ValueBasedModel):
                              deterministic=True,
                              reorder=reorder,
                              flatten=flatten,
-                             default=True,
                              head_depth=2,
                              **kwargs)
         self.init_params(self.q)
