@@ -117,6 +117,7 @@ class EpisodicWorker(RolloutWorker):
         self.log_interval = log_interval
         self.num_steps_ep = 0
         self.rews = 0
+        self.scores = deque(maxlen=100)
         self.logger = logger
 
     def run(self):
@@ -126,8 +127,12 @@ class EpisodicWorker(RolloutWorker):
                 self.rews += info['rew']
                 self.num_steps_ep += 1
                 if done:
+                    self.scores.append(self.rews)
+                    avg_score = sum(list(self.scores)) / len(list(self.scores))
                     info_r = {
-                        'Episodic/rews': self.rews
+                        'Episodic/rews': self.rews,
+                        'Episodic/rews_avg': avg_score,
+                        'Episodic/ep_length': self.num_steps_ep
                     }
                     info.update(info_r)
                     info.pop('rew')

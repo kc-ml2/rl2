@@ -51,7 +51,6 @@ class TorchModel(nn.Module):
         self.device = device if device else available_device
         # self.summary_writer = SummaryWriter(log_dir=save_dir)
 
-
     @abstractmethod
     def step(self, loss):
         """
@@ -301,7 +300,10 @@ class BranchModel(TorchModel):
         dims = [encoded_dim, output_dim]
         if discrete:
             if deterministic:
-                distribution = 'GumbelSoftmax'
+                # distribution = 'GumbelSoftmax'
+                # Change for dqn default head
+                # remove GumbelSoftmax if DPG can't handle discrete action_space
+                distribution = 'Scalar'
             else:
                 distribution = 'Categorical'
         else:
