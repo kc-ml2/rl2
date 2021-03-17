@@ -41,7 +41,8 @@ def loss_func_cr(data, model, **kwargs):
 
 
 def loss_func_cr_mix(data, model, **kwargs):
-    sample_size = 32
+    sample_size = 16
+    eps = 1e-1
     num_action = data[1].shape[-1]
     samples = np.random.dirichlet(np.ones(num_action), sample_size)
     a = np.eye(num_action)
@@ -56,12 +57,16 @@ def loss_func_cr_mix(data, model, **kwargs):
         s_r = s.repeat_interleave(num_action, dim=0)
         a = a.repeat(num_batch, 1)
 
+        import pdb; pdb.set_trace()
         q = model.q(s_r, a).mean
         q = q.reshape(num_batch, -1)
 
+        q_min = q.min(-1, keepdim=True)[0]
         q_mixed = (q * samples).sum(-1, keepdim=True)
+        noisy_samples = samples + eps * torch.randn_like(samples)
     q_int = model.q(s, samples).mean
-    loss = F.mse_loss(q_int, q_mixed)
+    q_ext = model.q(s, noisy_samples).mean
+    loss = F.mse_loss(q_int, q_mixed) + F.mse_loss(q_ext, q_min)
 
     return loss
 
@@ -287,8 +292,8 @@ class DDPGAgent(Agent):
         for _ in range(self.num_epochs):
             batch = self.buffer.sample(self.batch_size)
             cl = self.loss_func_cr(batch, self.model, gamma=self.gamma)
-            self.model.q.step(cl)
-            # cl_mix = self.loss_func_cr_mix(batch, self.model)
+            cl_mix = self.loss_func_cr_mix(batch, self.model)
+            self.model.q.step(cl+cl_mix)
             # self.model.q.step(cl_mix)
 
             al = self.loss_func_ac(batch, self.model)

@@ -37,7 +37,8 @@ class TorchModel(nn.Module):
             observation_shape: tuple,
             action_shape: tuple,
             save_dir: str = None,
-            device: str = None
+            device: str = None,
+            **kwargs
     ):
         super().__init__()
         self.observation_shape = observation_shape
@@ -50,7 +51,6 @@ class TorchModel(nn.Module):
         available_device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.device = device if device else available_device
         # self.summary_writer = SummaryWriter(log_dir=save_dir)
-
 
     @abstractmethod
     def step(self, loss):
@@ -265,6 +265,7 @@ class BranchModel(TorchModel):
         device = kwargs.get('device')
         super().__init__(observation_shape, action_shape, save_dir, device)
         optim_args = kwargs.get('optim_args', {})
+        high = kwargs.get('high', 1)
 
         self.discrete = discrete
         self.deterministic = deterministic
@@ -275,7 +276,7 @@ class BranchModel(TorchModel):
             encoded_dim = sum(list(observation_shape))
         self.encoder = self._handle_encoder(
             encoder, observation_shape, encoded_dim,
-            reorder=reorder, flatten=flatten, default=default,
+            reorder=reorder, flatten=flatten, default=default, high=high
         ).to(self.device)
 
         self.head = self._handle_head(
@@ -293,7 +294,7 @@ class BranchModel(TorchModel):
             self.head_target = copy.deepcopy(self.head)
 
     def _handle_encoder(self, encoder, observation_shape, encoded_dim,
-                        reorder=False, flatten=False, default=True):
+                        reorder=False, flatten=False, default=True, high=1):
         if encoder:
             # User has given the encoder, validate!
             if reorder and len(observation_shape) < 2:
@@ -310,7 +311,7 @@ class BranchModel(TorchModel):
                         observation_shape[0],
                         observation_shape[1],
                     )
-                encoder = ConvEnc(observation_shape, encoded_dim)
+                encoder = ConvEnc(observation_shape, encoded_dim, high=high)
                 return BaseEncoder(encoder, reorder, flatten)
         elif len(observation_shape) == 1:
             # Make MLP
