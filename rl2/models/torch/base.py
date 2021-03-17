@@ -123,6 +123,36 @@ class PolicyBasedModel(TorchModel):
                          save_dir=save_dir,
                          device=device)
 
+    @abstractmethod
+    def forward(self, state):
+        """
+        TODO: implement vanila pg learning
+        """
+        pass
+
+    @abstractmethod
+    def step(self, loss):
+        """
+        TODO:
+        implement vanila pg step
+        """
+        pass
+
+    @abstractmethod
+    def save(self):
+        """
+        TODO:
+        implement vanila pg save
+        """
+        pass
+
+    @abstractmethod
+    def load(self):
+        """
+        implement vanila pg load
+        """
+        pass
+
 
 class ValueBasedModel(TorchModel):
     """
