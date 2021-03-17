@@ -47,10 +47,11 @@ myconfig = {
     'gamma': 0.99,
     'eps': 0.05,
     'polyak': 0,
+    'decay_step': 100000,
     'grad_clip': 0.01,
     'log_dir': './runs',
-    'tag': 'DDQN/SNAKE',
-    'double': True,
+    'tag': 'DQN/SNAKE',
+    'double': False,
     'log_level': 10
 }
 config = EasyDict(myconfig)
@@ -80,6 +81,7 @@ if __name__ == '__main__':
                      train_interval=config.train_interval,
                      num_epochs=config.num_epochs,
                      buffer_size=config.buffer_size,
+                     decay_step=config.decay_step,
                      eps=config.eps,
                      gamma=config.gamma,
                      log_interval=config.log_interval,

@@ -20,8 +20,7 @@ def loss_func(data, model, **kwargs):
                               dim=-1, keepdim=True).values
         else:
             a_ = torch.argmax(model.q(s_).mean, dim=-1, keepdim=True)
-            v_trg = torch.sum(
-                (model.q.forward_trg(s_).mean * a_), dim=-1, keepdim=True)
+            v_trg = model.q.forward_trg(s_).mean.gather(-1, a_)
         bellman_trg = r + kwargs['gamma'] * v_trg * (1-d)
 
     q = torch.sum((model.q(s).mean * a), dim=-1, keepdim=True)
