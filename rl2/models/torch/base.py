@@ -13,7 +13,6 @@ import torch.nn.functional as F
 
 from rl2.networks.torch import MLP, ConvEnc
 import rl2.distributions.torch as dist
-# from torch.utils.tensorboard import SummaryWriter
 
 """
 interface that can handle most of the recent algorithms. (PG, Qlearning)
@@ -36,21 +35,14 @@ class TorchModel(nn.Module):
             self,
             observation_shape: tuple,
             action_shape: tuple,
-            save_dir: str = None,
             device: str = None,
             **kwargs
     ):
         super().__init__()
         self.observation_shape = observation_shape
         self.action_shape = action_shape
-        self.is_save = False
-        if save_dir is not None:
-            self.save = True
-            self.save_dir = save_dir
-
         available_device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.device = device if device else available_device
-        # self.summary_writer = SummaryWriter(log_dir=save_dir)
 
     @abstractmethod
     def step(self, loss):
@@ -117,10 +109,8 @@ class PolicyBasedModel(TorchModel):
     """
 
     def __init__(self, observation_shape, action_shape, **kwargs):
-        save_dir = kwargs.get('save_dir')
         device = kwargs.get('device')
         super().__init__(observation_shape, action_shape,
-                         save_dir=save_dir,
                          device=device)
 
     @abstractmethod
@@ -164,9 +154,9 @@ class ValueBasedModel(TorchModel):
     """
 
     def __init__(self, observation_shape, action_shape, **kwargs):
-        save_dir = kwargs.get('save_dir')
         device = kwargs.get('device')
-        super().__init__(observation_shape, action_shape, save_dir, device)
+        super().__init__(observation_shape, action_shape,
+                         device)
 
         self.q_network = None
         self.target_network = None
@@ -261,9 +251,9 @@ class BranchModel(TorchModel):
                  default=True,
                  head_depth=1,
                  **kwargs):
-        save_dir = kwargs.get('save_dir')
         device = kwargs.get('device')
-        super().__init__(observation_shape, action_shape, save_dir, device)
+        super().__init__(observation_shape, action_shape,
+                         device)
         optim_args = kwargs.get('optim_args', {})
         high = kwargs.get('high', 1)
 

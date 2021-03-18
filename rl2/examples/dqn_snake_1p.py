@@ -20,7 +20,10 @@ below example just changes 1. and some hparams
 
 from rl2.examples.temp_logger import LOG_LEVELS, Logger
 
-env = gym.make('Snake-v1', num_snakes=1, num_fruits=20)
+env = gym.make('Snake-v1',
+               num_snakes=1, num_fruits=1,
+               width=10, height=10,
+               vision_range=5)
 env = SingleAgent(env)
 
 # check Continuous or Discrete
@@ -36,31 +39,30 @@ config = DEFAULT_DQN_CONFIG
 
 # Or Customize your config
 myconfig = {
-    # 'num_workers': 64,
     'buffer_size': int(1e6),
-    'batch_size': 32,
+    'batch_size': 64,
     'num_epochs': 1,
-    'update_interval': 10000,
+    'update_interval': 100000,
     'train_interval': 1,
     'log_interval': 10,
     'lr': 1e-4,
     'gamma': 0.99,
-    'eps': 0.05,
+    'eps': 0.1,
     'polyak': 0,
-    'decay_step': 100000,
-    'grad_clip': 0.01,
+    'decay_step': 1000000,
+    'grad_clip': 1,
     'log_dir': './runs',
-    'tag': 'DQN/SNAKE',
+    'tag': 'DQN/SNAKE/VR',
     'double': False,
-    'log_level': 10
+    'log_level': 10,
+    # 'optim_args': {}
 }
 config = EasyDict(myconfig)
 
+
 if __name__ == '__main__':
     logger = Logger(name='DEFAULT', args=config)
-    import json
-    with open(logger.log_dir+'/config.json', 'w') as f:
-        json.dump(myconfig, f)
+    # logger.config_summary(myconfig)
     observation_shape = env.observation_space.shape
     action_shape = (env.action_space.n,) if hasattr(
         env.action_space, 'n') else env.action_space.shape
@@ -73,7 +75,8 @@ if __name__ == '__main__':
                      polyak=config.polyak,
                      reorder=True,
                      discrete=True,
-                     is_save=True)
+                     #  optim_args=config.optim_args,
+                     )
 
     agent = DQNAgent(model,
                      action_n=action_n,
@@ -85,10 +88,10 @@ if __name__ == '__main__':
                      eps=config.eps,
                      gamma=config.gamma,
                      log_interval=config.log_interval,
-                     logger=logger
                      )
 
     worker = EpisodicWorker(env=env,
+                            n_env=1,
                             agent=agent,
                             training=True,
                             max_episodes=1e9,
@@ -96,6 +99,7 @@ if __name__ == '__main__':
                             log_interval=config.log_interval,
                             render=False,
                             logger=logger,
+                            is_save=True,
                             )
 
     worker.run()

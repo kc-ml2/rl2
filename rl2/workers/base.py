@@ -1,10 +1,9 @@
-from typing import Optional
-from easydict import EasyDict
+import os
+import numpy as np
+from pathlib import Path
 from collections import deque
 from collections.abc import Iterable
-import numpy as np
 from rl2.agents.base import Agent
-from torch.utils.tensorboard import SummaryWriter
 
 
 class RolloutWorker:
@@ -24,6 +23,8 @@ class RolloutWorker:
             agent: Agent,
             training=False,
             render=False,
+            is_save=False,
+            save_interval=int(1e6),
             # render_mode: str ='human',
     ):
         self.env = env
@@ -31,6 +32,10 @@ class RolloutWorker:
         self.agent = agent
         self.training = training
         self.render = render
+        self.is_save = is_save
+        if self.is_save:
+            self.save_interval = save_interval
+
         # self.render_mode = render_mode
         self.num_episodes = 0
         self.num_steps = 0
@@ -44,6 +49,11 @@ class RolloutWorker:
 
     def run(self):
         raise NotImplementedError
+
+    def save(self, save_dir):
+        save_dir = os.path.join(save_dir, f'ckpt/{int(self.num_steps/1000)}k')
+        Path(save_dir).mkdir(parents=True, exist_ok=True)
+        self.agent.model.save(save_dir)
 
     def rollout(self):
         ac = self.agent.act(self.obs)
@@ -67,6 +77,7 @@ class RolloutWorker:
             if self.render:
                 # how to deal with render mode?
                 self.env.render()
+                # TODO: logger.video_summary
         self.num_steps += self.n_env
         self.episode_score = self.episode_score + np.array(rew)
         if isinstance(done, Iterable):
@@ -76,7 +87,6 @@ class RolloutWorker:
                     if d:
                         self.scores.append(self.episode_score[d_i])
                         self.episode_score[d_i] = 0.0
-
         else:
             if done:  # do sth about ven env
                 self.num_episodes += 1
@@ -87,6 +97,12 @@ class RolloutWorker:
         self.obs = obs
         info = {**info, **{'rew': rew}}
         results = None
+
+        # Save model object
+        if self.is_save and self.num_steps % self.save_interval == 0:
+            if hasattr(self, 'logger'):
+                save_dir = getattr(self.logger, 'log_dir')
+            self.save(save_dir)
 
         return done, info, results
 

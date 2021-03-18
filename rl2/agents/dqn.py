@@ -2,7 +2,6 @@ import os
 import numpy as np
 import torch
 import torch.nn.functional as F
-from pathlib import Path
 from typing import Callable, Type
 from rl2.agents.base import Agent
 from rl2.buffers.base import ExperienceReplay, ReplayBuffer
@@ -25,8 +24,7 @@ def loss_func(data, model, **kwargs):
         bellman_trg = r + kwargs['gamma'] * v_trg * (1-d)
 
     q = torch.sum((model.q(s).mean * a), dim=-1, keepdim=True)
-    # loss = F.smooth_l1_loss(q, bellman_trg)
-    loss = F.mse_loss(q, bellman_trg)
+    loss = F.smooth_l1_loss(q, bellman_trg)
 
     return loss
 
@@ -46,7 +44,7 @@ class DQNModel(ValueBasedModel):
                  encoded_dim: int = 64,
                  optim: str = 'torch.optim.RMSprop',
                  lr: float = 1e-4,
-                 grad_clip: float = 1e-2,
+                 grad_clip: float = 1,
                  polyak: float = float(0),
                  discrete: bool = True,
                  flatten: bool = False,
@@ -121,15 +119,12 @@ class DQNModel(ValueBasedModel):
         self.q.update_trg(alpha=self.polyak)
 
     def save(self, save_dir):
-        torch.save(self.q.state_dict(), os.path.join(save_dir, 'q_network.pt'))
+        torch.save(self.state_dict(), os.path.join(save_dir, 'DQNModel.pt'))
         print(f'model saved in {save_dir}')
 
     def load(self, load_dir):
-        ckpt = torch.load(
-            load_dir,
-            map_location=self.device
-        )
-        self.model.q.load_state_dict(ckpt)
+        ckpt = torch.load(load_dir, map_location=self.device)
+        self.load_state_dict(ckpt)
 
 
 class DQNAgent(Agent):
@@ -184,11 +179,6 @@ class DQNAgent(Agent):
         # Set loss function
         self.loss_func = loss_func
 
-        # Set logger
-        self.logger = kwargs.get('logger')
-        if self.logger:
-            self.log_dir = self.logger.log_dir
-
     def act(self, obs: np.ndarray) -> np.ndarray:
         if len(obs.shape) in (1, 3):
             obs = np.expand_dims(obs, axis=0)
@@ -211,11 +201,6 @@ class DQNAgent(Agent):
         if (self.curr_step % self.update_interval == 0 and
                 self.curr_step > self.update_after):
             self.model.update_trg()
-        if self.curr_step % self.save_interval == 0 and self.model.is_save:
-            save_dir = os.path.join(
-                self.log_dir, f'ckpt/{int(self.curr_step/1000)}k')
-            Path(save_dir).mkdir(parents=True, exist_ok=True)
-            self.model.save(save_dir)
 
         return info
 
