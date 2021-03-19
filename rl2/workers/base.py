@@ -23,20 +23,23 @@ class RolloutWorker:
             agent: Agent,
             training=False,
             render=False,
+            render_interval=1000,
             is_save=False,
             save_interval=int(1e6),
             # render_mode: str ='human',
+            **kwargs
     ):
         self.env = env
         self.n_env = n_env
         self.agent = agent
         self.training = training
         self.render = render
+        self.render_interval = render_interval
         self.is_save = is_save
         if self.is_save:
             self.save_interval = save_interval
 
-        # self.render_mode = render_mode
+        self.render_mode = kwargs.get('render_mode')
         self.num_episodes = 0
         self.num_steps = 0
         self.scores = deque(maxlen=100)
@@ -72,12 +75,19 @@ class RolloutWorker:
             # task_list = self.agent.dispatch()
             # if len(task_list) > 0:
             #     results = {bound_method.__name__: bound_method() for bound_method in task_list}
-        else:
-            # if self.render_mode:
             if self.render:
                 # how to deal with render mode?
-                self.env.render()
-                # TODO: logger.video_summary
+                if self.render_mode == 'rgb_array' and self.num_episodes % self.render_interval < 10:
+                    self._rendering = True
+                    self._num_rendering = 0
+                    rgb_array = self.env.render('rgb_array')
+                    self.logger.store_rgb(rgb_array)
+                elif self.render_mode == 'ascii':
+                    self.env.render(self.render_mode)
+                elif self.render_mode == 'human':
+                    self.env.render()
+        # else:
+            # if self.render_mode:
         self.num_steps += self.n_env
         self.episode_score = self.episode_score + np.array(rew)
         if isinstance(done, Iterable):
@@ -98,7 +108,7 @@ class RolloutWorker:
         info = {**info, **{'rew': rew}}
         results = None
 
-        # Save model object
+        # Save model
         if self.is_save and self.num_steps % self.save_interval == 0:
             if hasattr(self, 'logger'):
                 save_dir = getattr(self.logger, 'log_dir')
@@ -159,6 +169,8 @@ class EpisodicWorker(RolloutWorker):
                     self.scores.append(self.rews)
                     avg_score = sum(list(self.scores)) / len(list(self.scores))
                     info_r = {
+                        'Counts/num_steps': self.num_steps,
+                        'Counts/num_episodes': self.num_episodes,
                         'Episodic/rews': self.rews,
                         'Episodic/rews_avg': avg_score,
                         'Episodic/ep_length': self.num_steps_ep
@@ -167,6 +179,9 @@ class EpisodicWorker(RolloutWorker):
                     info.pop('rew')
                     if self.num_episodes % self.log_interval == 0:
                         self.logger.scalar_summary(info, self.num_steps)
+                    if ((self.num_episodes-1) - 10) % self.render_interval == 0:
+                        self.logger.video_summary(tag='playback',
+                                                  step=self.num_steps)
                     self.rews = 0
                     self.num_steps_ep = 0
                     break

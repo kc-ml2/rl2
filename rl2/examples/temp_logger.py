@@ -4,9 +4,12 @@ import logging
 import os
 import sys
 import traceback
+import numpy as np
 from datetime import datetime
 from pathlib import Path
 from subprocess import PIPE, Popen
+
+import torch
 
 from rl2.agents.configs import DEFAULT_DQN_CONFIG
 from tensorboard.compat.proto.summary_pb2 import Summary
@@ -21,32 +24,6 @@ LOG_LEVELS = {
     'ERROR': {'lvl': 40, 'color': 'red'},
     'CRITICAL': {'lvl': 50, 'color': 'red'},
 }
-
-
-def encode_gif(images, fps=30):
-    cmd = [
-        'ffmpeg', '-y',
-        '-f', 'rawvideo',
-        '-vcodec', 'rawvideo',
-        '-r', '%.02f' % fps,
-        '-s', '%dx%d' % (images[0].shape[1], images[0].shape[0]),
-        '-pix_fmt', 'rgb24',
-        '-i', '-',
-        '-filter_complex',
-        '[0:v]split[x][z];[z]palettegen[y];[x]fifo[x];[x][y]paletteuse',
-        '-r', '%.02f' % fps,
-        '-f', 'gif',
-        '-'
-    ]
-    proc = Popen(cmd, stdin=PIPE, stdout=PIPE, stderr=PIPE)
-    for image in images:
-        proc.stdin.write(image.tostring())
-    out, err = proc.communicate()
-    if proc.returncode:
-        err = '\n'.join([' '.join(cmd), err.decode('utf8')])
-        raise IOError(err)
-    del proc
-    return out
 
 
 class Logger:
@@ -78,6 +55,7 @@ class Logger:
         self.writer = SummaryWriter(self.log_dir)
         sys.excepthook = self.excepthook
         self.config_summary(args)
+        self.buffer = []
 
     def log(self, msg, lvl="INFO"):
         lvl, color = self.get_level_color(lvl)
@@ -127,7 +105,7 @@ class Logger:
 
             dashes = '  ' + '-'*(keywidth + valwidth + 7)
             lines = [dashes]
-            for key, val in key2str.items():
+            for key, val in sorted(key2str.items()):
                 lines.append('  | %s%s | %s%s |' % (
                     key,
                     ' '*(keywidth - len(key)),
@@ -154,31 +132,18 @@ class Logger:
             for k, v in info.items():
                 self.writer.add_scalar(k, v, step)
 
-    def video_summary(self, images, step, tag='playback', fps=30):
-        path = os.path.join(self.log_dir, 'videos')
-        if not os.path.exists(path):
-            os.makedirs(path)
-        string_encode = encode_gif(images, fps=fps)
-        path = os.path.join(path, '{}_{}.gif'.format(tag, step))
+    def store_rgb(self, rgb_array):
+        # FIXME: safe way to store image buffer
+        # self.buffer.push(rgb_array)
+        rgb_array = np.transpose(rgb_array, (2, 0, 1))
+        self.buffer.append(rgb_array)
 
-        # save gif image
-        with open(path, 'wb') as f:
-            f.write(string_encode)
-
-        # flush to tensorboard
+    def video_summary(self, tag, step):
+        # _, t, h, w, c = self.buffer.shape
+        vid_tensor = torch.from_numpy(np.array(self.buffer)).unsqueeze(0)
         if self.writer is not None:
-            _, h, w, c = images.shape
-            video = Summary.Image(
-                height=h,
-                width=w,
-                colorspace=c,
-                encoded_image_string=string_encode
-            )
-            self.writer._get_file_writer().add_summary(
-                Summary(value=[Summary.Value(tag=tag, image=video)]),
-                step,
-                walltime=None
-            )
+            self.writer.add_video(tag, vid_tensor, step)
+        self.buffer = []
 
     def add_histogram(self, tag, values, step):
         if self.writer is not None:

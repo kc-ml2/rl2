@@ -1,3 +1,4 @@
+from tensorboard.compat.proto.event_pb2 import TaggedRunMetadata
 from rl2.agents.dqn import DQNAgent, DQNModel
 import torch
 from termcolor import colored
@@ -97,9 +98,10 @@ if __name__ == '__main__':
                             max_episodes=1e9,
                             max_steps_per_ep=1e4,
                             log_interval=config.log_interval,
-                            render=False,
+                            render=True,
                             logger=logger,
                             is_save=True,
+                            render_mode='rgb_array',
                             )
 
     worker.run()
