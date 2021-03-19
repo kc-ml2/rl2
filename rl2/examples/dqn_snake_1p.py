@@ -40,23 +40,22 @@ config = DEFAULT_DQN_CONFIG
 
 # Or Customize your config
 myconfig = {
-    'buffer_size': int(1e6),
+    'buffer_size': 1000000,
     'batch_size': 64,
     'num_epochs': 1,
     'update_interval': 100000,
     'train_interval': 1,
-    'log_interval': 10,
+    'log_interval': 100,
     'lr': 1e-4,
     'gamma': 0.99,
-    'eps': 0.1,
+    'eps': 0.01,
     'polyak': 0,
-    'decay_step': 1000000,
-    'grad_clip': 1,
+    'decay_step': 500000,
+    'grad_clip': 10,
     'log_dir': './runs',
-    'tag': 'DQN/SNAKE/VR',
+    'tag': 'DQN/SNAKE/VR/ED500K',
     'double': False,
     'log_level': 10,
-    # 'optim_args': {}
 }
 config = EasyDict(myconfig)
 
@@ -85,6 +84,7 @@ if __name__ == '__main__':
                      train_interval=config.train_interval,
                      num_epochs=config.num_epochs,
                      buffer_size=config.buffer_size,
+                     batch_size=config.batch_size,
                      decay_step=config.decay_step,
                      eps=config.eps,
                      gamma=config.gamma,
@@ -102,6 +102,7 @@ if __name__ == '__main__':
                             logger=logger,
                             is_save=True,
                             render_mode='rgb_array',
+                            render_interval=10000,
                             )
 
     worker.run()

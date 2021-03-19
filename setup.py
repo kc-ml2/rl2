@@ -17,7 +17,6 @@ setup(
         'mpi4py',
         'easydict',
         'torch',
+        'moviepy'
     ]
 )
-
-
