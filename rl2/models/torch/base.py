@@ -11,7 +11,7 @@ from torch import nn
 from torch.optim import Optimizer
 import torch.nn.functional as F
 
-from rl2.networks.torch import MLP, ConvEnc
+from rl2.networks.torch import MLP, ConvEnc, LSTM
 import rl2.distributions.torch as dist
 
 """
@@ -196,27 +196,47 @@ class ValueBasedModel(TorchModel):
 
 
 class BaseEncoder(nn.Module):
-    def __init__(self, net, reorder=False, flatten=False):
+    def __init__(self, net, encoded_dim, reorder=False, flatten=False,
+                 recurrent=False):
         super().__init__()
         self.net = net
         self.reorder = reorder
         self.flatten = flatten
         self.memory = {}
+        self.rnn = None
+        if recurrent:
+            self.rnn = LSTM(encoded_dim, encoded_dim)
 
-    def forward(self, x):
+    def forward(self, x, **kwargs):
+        if self.rnn:
+            # Check that the input data is in form (S, N, F...)
+            assert len(x.shape) in (3, 5)
+            seq_len = x.shape[0]
+            batch_size = x.shape[1]
+            x = x.reshape(-1, *x.shape[2:])
+
         if self.reorder or self.flatten:
             assert len(x.shape) > 3, "Dimension of input too small for encoder"
         input_id = id(x)
         if input_id in self.memory:
             return self.memory[input_id]
+
         if self.net is not None:
             if self.reorder:
                 x = x.permute(0, 3, 1, 2)
             x = self.net(x)
         elif self.flatten:
             x = x.view(x.shape[0], -1)
-        self.memory[input_id] = x
-        return x
+
+        if self.rnn:
+            x = x.reshape(seq_len, batch_size, *x.shape[1:])
+            x, hidden = self.rnn(x, **kwargs)
+            x = x.reshape(-1, *x.shape[2:])
+            self.memory[input_id] = x
+            return x, hidden
+        else:
+            self.memory[input_id] = x
+            return x
 
     def reset_memory(self):
         self.memory = {}
@@ -250,6 +270,7 @@ class BranchModel(TorchModel):
                  flatten=False,
                  default=True,
                  head_depth=1,
+                 recurrent=False,
                  **kwargs):
         device = kwargs.get('device')
         super().__init__(observation_shape, action_shape,
@@ -260,13 +281,15 @@ class BranchModel(TorchModel):
         self.discrete = discrete
         self.deterministic = deterministic
         self.grad_clip = grad_clip
+        self.recurrent = recurrent
 
         if (not encoder and not default) or flatten:
             # Observation space will be the encoded space
             encoded_dim = sum(list(observation_shape))
         self.encoder = self._handle_encoder(
             encoder, observation_shape, encoded_dim,
-            reorder=reorder, flatten=flatten, default=default, high=high
+            reorder=reorder, flatten=flatten, default=default, high=high,
+            rnn=recurrent
         ).to(self.device)
 
         self.head = self._handle_head(
@@ -284,15 +307,16 @@ class BranchModel(TorchModel):
             self.head_target = copy.deepcopy(self.head)
 
     def _handle_encoder(self, encoder, observation_shape, encoded_dim,
-                        reorder=False, flatten=False, default=True, high=1):
+                        reorder=False, flatten=False, default=True, rnn=False,
+                        high=1):
         if encoder:
             # User has given the encoder, validate!
             if reorder and len(observation_shape) < 2:
                 raise ValueError("Cannont reorder a input dimension < 2")
-            return BaseEncoder(encoder, reorder, False)
+            return BaseEncoder(encoder, encoded_dim, reorder, False, rnn)
         if len(observation_shape) == 3:
             if flatten:
-                return BaseEncoder(encoder, False, flatten)
+                return BaseEncoder(encoder, encoded_dim, False, flatten, rnn)
             else:
                 # Build a default convnet
                 if reorder:
@@ -302,13 +326,13 @@ class BranchModel(TorchModel):
                         observation_shape[1],
                     )
                 encoder = ConvEnc(observation_shape, encoded_dim, high=high)
-                return BaseEncoder(encoder, reorder, flatten)
+                return BaseEncoder(encoder, encoded_dim, reorder, flatten, rnn)
         elif len(observation_shape) == 1:
             # Make MLP
             if default:
                 encoder = nn.Sequential(MLP(observation_shape[0], encoded_dim),
                                         nn.ReLU())
-            return BaseEncoder(encoder, False, False)
+            return BaseEncoder(encoder, encoded_dim, False, False, rnn)
         else:
             raise ValueError("Cannot create a default encoder for "
                              "observation of dimension > 3 or 2")
@@ -324,7 +348,7 @@ class BranchModel(TorchModel):
             if deterministic:
                 # distribution = 'GumbelSoftmax'
                 # Change for dqn default head
-                # remove GumbelSoftmax if DPG can't handle discrete action_space
+                # remove GumbelSoftmax if DPG cant handle discrete action_space
                 distribution = 'Scalar'
             else:
                 distribution = 'Categorical'
@@ -348,37 +372,41 @@ class BranchModel(TorchModel):
         self.polyak_update(self.encoder, self.encoder_target, alpha)
         self.polyak_update(self.head, self.head_target, alpha)
 
-    def forward(self, observation):
+    def forward(self, observation, **kwargs):
         if len(observation.shape) == len(self.observation_shape):
             observation = observation.unsqueeze(0)
-        ir = self.encoder(observation)
-        output = self.head(ir)
+        if (self.recurrent
+           and len(observation.shape) == len(self.observation_shape) + 1):
+            observation = observation.unsqueeze(0)
+        ir = self.encoder(observation, **kwargs)
+        if self.recurrent:
+            hidden = ir[1]
+            ir = ir[0]
+            output = self.head(ir)
+            return output, hidden
 
+        output = self.head(ir)
         return output
 
-    def forward_trg(self, observation):
+    def forward_trg(self, observation, **kwargs):
         with torch.no_grad():
             if len(observation.shape) == len(self.observation_shape):
                 observation = observation.unsqueeze(0)
-            ir = self.encoder_target(observation)
+            ir = self.encoder_target(observation, **kwargs)
+            if self.recurrent:
+                hidden = ir[1]
+                ir = ir[0]
+                output = self.head(ir)
+                return output, hidden
+
             output = self.head_target(ir)
-
         return output
-
-    def infer(self, observation):
-        obs = observation.from_numpy().to(self.device)
-        if len(observation.shape) == len(self.observation_shape):
-            observation = observation.unsqueeze(0)
-        output = self.forward(obs)
-        output = output.detach().cpu().numpy()
 
     def step(self, loss, retain_graph=False):
         self.optimizer.zero_grad()
         loss.backward(retain_graph=retain_graph)
         torch.nn.utils.clip_grad_norm_(
-            self.encoder.parameters(), self.grad_clip)
-        torch.nn.utils.clip_grad_norm_(
-            self.head.parameters(), self.grad_clip)
+            self.parameters(), self.grad_clip)
         self.optimizer.step()
 
     @abstractmethod
@@ -438,22 +466,22 @@ class InjectiveBranchModel(BranchModel):
         if make_target:
             self.head_target = copy.deepcopy(self.head)
 
-    def forward(self, observation, injection):
+    def forward(self, observation, injection, *args):
         # TODO: check for shared memory of the same trace
         if len(observation.shape) == len(self.observation_shape):
             observation = observation.unsqueeze(0)
-        ir = self.encoder(observation)
+        ir = self.encoder(observation, *args)
         ir = torch.cat([ir, injection], dim=-1)
         output = self.head(ir)
 
         return output
 
-    def forward_trg(self, observation, injection):
+    def forward_trg(self, observation, injection, *args):
         with torch.no_grad():
             # TODO: check for shared memory of the same trace
             if len(observation.shape) == len(self.observation_shape):
                 observation = observation.unsqueeze(0)
-            ir = self.encoder_target(observation)
+            ir = self.encoder_target(observation, *args)
             ir = torch.cat([ir, injection], dim=-1)
             output = self.head_target(ir)
 
