@@ -29,6 +29,7 @@ def make_snake():
 
 def make_single():
     n_env = 1
+    # env = make_cartpole()()
     env = make_snake()()
     observation_shape = env.observation_space.shape
     action_shape = (env.action_space.n,)
@@ -37,7 +38,7 @@ def make_single():
 
 def make_vec():
     n_env = 64
-    # dummyenv = gym.make("CartPole-v0")
+    # dummyenv = make_cartpole()()
     # env = AsyncVectorEnv([make_cartpole() for i in range(n_env)])
     dummyenv = make_snake()()
     env = AsyncVectorEnv([make_snake() for i in range(n_env)])
@@ -47,7 +48,7 @@ def make_vec():
     return n_env, env, observation_shape, action_shape, high
 
 
-n_env, env, observation_shape, action_shape, high = make_single()
+n_env, env, observation_shape, action_shape, high = make_vec()
 reorder = True
 
 
@@ -88,8 +89,8 @@ def ddpg():
     return agent
 
 
-# agent = ppo()
-agent = ddpg()
+agent = ppo()
+# agent = ddpg()
 worker = MaxStepWorker(env, n_env, agent, max_steps=int(5e6), training=True)
 
 worker.run()
