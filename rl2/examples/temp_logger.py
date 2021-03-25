@@ -29,6 +29,12 @@ LOG_LEVELS = {
 class Logger:
     def __init__(self, name, args=None, log_dir=None):
         self.args = args
+        if not hasattr(args, 'log_dir'):
+            setattr(args, 'log_dir', './runs')
+        if not hasattr(args, 'tag'):
+            setattr(args, 'tag', '')
+        if not hasattr(args, 'log_level'):
+            setattr(args, 'log_level', 10)
         if log_dir is None:
             self.log_dir = os.path.join(args.log_dir, args.tag,
                                         datetime.now().strftime("%Y%m%d%H%M%S"))
@@ -94,7 +100,8 @@ class Logger:
                     valstr = "%-8.3g" % (val,)
                 else:
                     valstr = str(val)
-                key2str[self._truncate(key)] = self._truncate(valstr)
+                # key2str[self._truncate(key)] = self._truncate(valstr)
+                key2str[key] = valstr
 
             if len(key2str) == 0:
                 self.log("empty key-value dict", 'WARNING')

@@ -4,8 +4,8 @@ import gym
 import marlenv
 from marlenv.wrappers import SingleAgent
 
-env = gym.make('Snake-v1', num_snakes=1, num_fruits=1,
-               width=10, height=10,
+env = gym.make('Snake-v1', num_snakes=1, num_fruits=100,
+               width=30, height=30,
                vision_range=5)
 env = SingleAgent(env)
 observation_shape = env.observation_space.shape
@@ -17,7 +17,7 @@ model = DQNModel(observation_shape,
                  discrete=True,
                  )
 
-load_dir = '/home/eunki/rl2/rl2/examples/runs/DQN/SNAKE/VR/20210318145130/ckpt/1000k/DQNModel.pt'
+load_dir = '/home/eunki/rl2/rl2/examples/runs/DQN/SNAKE/VR/ED500K/batch1024/rdeps/20210321173432/ckpt/1000k/DQNModel.pt'
 model.load(load_dir=load_dir)
 
 agent = DQNAgent(model=model,

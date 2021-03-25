@@ -33,13 +33,16 @@ class RolloutWorker:
         self.n_env = n_env
         self.agent = agent
         self.training = training
+
         self.render = render
-        self.render_interval = render_interval
+        if self.render:
+            self.render_interval = render_interval
+            self.render_mode = kwargs.get('render_mode')
+
         self.is_save = is_save
         if self.is_save:
             self.save_interval = save_interval
 
-        self.render_mode = kwargs.get('render_mode')
         self.num_episodes = 0
         self.num_steps = 0
         self.scores = deque(maxlen=100)
@@ -75,17 +78,15 @@ class RolloutWorker:
             # task_list = self.agent.dispatch()
             # if len(task_list) > 0:
             #     results = {bound_method.__name__: bound_method() for bound_method in task_list}
-            if self.render:
-                # how to deal with render mode?
-                if self.render_mode == 'rgb_array' and self.num_episodes % self.render_interval < 10:
-                    self._rendering = True
-                    self._num_rendering = 0
-                    rgb_array = self.env.render('rgb_array')
-                    self.logger.store_rgb(rgb_array)
-                elif self.render_mode == 'ascii':
-                    self.env.render(self.render_mode)
-                elif self.render_mode == 'human':
-                    self.env.render()
+        if self.render:
+            # how to deal with render mode?
+            if self.render_mode == 'rgb_array' and self.num_episodes % self.render_interval < 10:
+                rgb_array = self.env.render('rgb_array')
+                self.logger.store_rgb(rgb_array)
+            elif self.render_mode == 'ascii':
+                self.env.render(self.render_mode)
+            elif self.render_mode == 'human':
+                self.env.render()
         # else:
             # if self.render_mode:
         self.num_steps += self.n_env
@@ -146,14 +147,14 @@ class EpisodicWorker(RolloutWorker):
 
     def __init__(self, env, n_env, agent,
                  max_episodes: int = 10,
-                 max_steps_per_ep: int = 1e4,
+                 max_steps_per_ep: int = int(1e4),
                  log_interval: int = 1000,
                  logger=None,
                  **kwargs):
         super().__init__(env, n_env, agent, **kwargs)
         self.max_episodes = int(max_episodes)
         self.max_steps_per_ep = int(max_steps_per_ep)
-        self.log_interval = log_interval
+        self.log_interval = int(log_interval)
         self.num_steps_ep = 0
         self.rews = 0
         self.scores = deque(maxlen=100)
@@ -167,7 +168,7 @@ class EpisodicWorker(RolloutWorker):
                 self.num_steps_ep += 1
                 if done:
                     self.scores.append(self.rews)
-                    avg_score = sum(list(self.scores)) / len(list(self.scores))
+                    avg_score = np.mean(list(self.scores))
                     info_r = {
                         'Counts/num_steps': self.num_steps,
                         'Counts/num_episodes': self.num_episodes,

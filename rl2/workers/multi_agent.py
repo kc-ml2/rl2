@@ -1,21 +1,36 @@
 import math
+from typing import List
+from rl2.agents.base import Agent
 from rl2.workers.base import RolloutWorker
+import numpy as np
+from collections import deque, ChainMap
 
 
 class MultiAgentRolloutWorker:
     def __init__(
         self,
         env,
-        agents,
+        agents: List[Agent],
         training=False,
         render=False,
+        render_interval=1000,
+        is_save=False,
+        save_interval=int(1e6),
         **kwargs
     ):
         self.env = env
         self.agents = agents
         self.training = training
+
         self.render = render
-        # self.render_mode = render_mode
+        if self.render:
+            self.render_interval = render_interval
+            self.render_mode = kwargs.get('render_mode')
+
+        self.is_save = is_save
+        if self.is_save:
+            self.save_interval = save_interval
+
         self.num_episodes = 0
         self.num_steps = 0
 
@@ -33,8 +48,8 @@ class MultiAgentRolloutWorker:
         obss, rews, dones, info = self.env.step(acs)
         if self.training:
             for agent, obs, ac, rew, done, obs_ in (
-                self.agents, self.obs, acs, rews, dones, obss):
-                agent.step(obs, ac, rew, done, obs)
+                    self.agents, self.obs, acs, rews, dones, obss):
+                agent.step(obs, ac, rew, done, obs_)
         else:
             if self.render:
                 self.env.render()
@@ -132,6 +147,118 @@ class EpisodicWorker(RolloutWorker):
                     self.rews = 0
 
         # TODO: when done do sth like logging
+
+
+class IndividualEpisodicWorker(MultiAgentRolloutWorker):
+    """
+    Rollout worker for individual agents
+    i.e. Fully decentralized agents
+    """
+
+    def __init__(self,
+                 env,
+                 agents,
+                 max_episodes: int = 10,
+                 max_steps_per_ep: int = int(1e4),
+                 log_interval: int = 1000,
+                 logger=None,
+                 **kwargs):
+        super().__init__(env, agents, **kwargs)
+        self.max_episodes = int(max_episodes)
+        self.max_steps_per_ep = int(max_steps_per_ep)
+        self.log_interval = int(log_interval)
+        self.render_mode = kwargs.setdefault('render_mode', 'rgb_array')
+        # self.render_interval = kwargs.setdefault('render_interval', 1000)
+        self.num_steps_ep = 0
+        self.rews = np.zeros(len(self.agents))
+        self.scores = [deque(maxlen=100) for _ in range(len(self.agents))]
+        self.logger = logger
+        self.obss = self.obs
+        self.infos = [{} for _ in range(len(self.agents))]
+
+    def rollout(self):
+        acs = []
+        infos = [{} for _ in range(len(self.agents))]
+        for agent, obs in zip(self.agents, self.obs):
+            ac = agent.act(obs)
+            acs.append(ac)
+
+        obss, rews, dones, info_e = self.env.step(acs)
+        self.rews += rews
+        if self.training:
+            for i, (agent, obs, ac, rew, done, obs_) in enumerate(zip(
+                    self.agents, self.obss, acs, rews, dones, obss)):
+                if not done:
+                    info_a = agent.step(obs, ac, rew, done, obs_)
+                    # FIXME: Handle Vector Env
+                    # if info_e:
+                    #     if isinstance(info_e, dict):
+                    #         infos[i] = {**infos[i], **info_e}
+                    #     elif isinstance(info_e, 'list') or isinstance(info_e, 'tuple'):
+                    #         infos[i] = {**info_a}
+                    #         for env_i, info_i in enumerate(info_e):
+                    #             infos[i]['env_{}'.format(env_i)] = info_i
+                    #     infos[i].update(info_a)
+                    # else:
+                    for key in list(info_a.keys()):
+                        info_a['agent_{}/'.format(i)+key] = info_a.pop(key)
+                    infos[i].update(info_a)
+        if self.render:
+            # how to deal with render mode?
+            # FIXME: deal with render interval for MaxStepWorker
+            if self.render_mode == 'rgb_array' and self.num_episodes % self.render_interval < 10:
+                rgb_array = self.env.render('rgb_array')
+                # Push rgb_array to logger's buffer
+                self.logger.store_rgb(rgb_array)
+            elif self.render_mode == 'ascii':
+                self.env.render(self.render_mode)
+            elif self.render_mode == 'human':
+                self.env.render()
+
+        self.num_steps += 1
+        if all(dones):  # do sth about ven env
+            self.num_episodes += 1
+            obss = self.env.reset()
+        # Update next obs
+        self.obss = obss
+        results = None
+
+        return dones, infos, results
+
+    def run(self):
+        for episode in range(self.max_episodes):
+            while self.num_steps_ep < self.max_steps_per_ep:
+                dones, infos, results = self.rollout()
+                self.num_steps_ep += 1
+                for i in np.where(dones)[0]:
+                    if len(self.infos[i]) == 0:
+                        self.scores[i].append(self.rews[i])
+                        avg_score = np.mean(list(self.scores[i]))
+
+                        info_r = {
+                            'agent_{}/Episodic/rews'.format(i): self.rews[i],
+                            'agent_{}/Episodic/rews_avg'.format(i): avg_score,
+                            'agent_{}/Episodic/ep_length'.format(i): self.num_steps_ep
+                        }
+                        self.infos[i].update({**infos[i], **info_r})
+
+                if all(dones):
+                    # FIXME: Bug; Log EPS values and losses
+                    if self.num_episodes % self.log_interval == 0:
+                        counts = {'Counts/num_steps': self.num_steps,
+                                  'Counts/num_episodes': self.num_episodes}
+
+                        summary = dict(ChainMap(*self.infos))
+                        summary.update(counts)
+                        self.logger.scalar_summary(summary, self.num_steps)
+                    if ((self.num_episodes-1) - 10) % self.render_interval == 0:
+                        self.logger.video_summary(tag='playback',
+                                                  step=self.num_steps)
+
+                    # Reset variables
+                    self.rews = np.zeros(len(self.agents))
+                    self.num_steps_ep = 0
+                    break
 
 
 def dynamic_class(cls1, cls2, *args, **kwargs):

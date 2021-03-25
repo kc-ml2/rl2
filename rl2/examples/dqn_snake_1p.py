@@ -1,29 +1,22 @@
-from tensorboard.compat.proto.event_pb2 import TaggedRunMetadata
 from rl2.agents.dqn import DQNAgent, DQNModel
-import torch
 from termcolor import colored
-import json
 import gym
 import marlenv
 from marlenv.wrappers import SingleAgent
 from easydict import EasyDict
 from rl2.agents.configs import DEFAULT_DQN_CONFIG
 from rl2.workers.base import EpisodicWorker
-
-"""
-you might want to modify
-1. layer architecture -> just pass nn.Module to predefined models
-2. which distributions to use -> implement model from interfaces e.g. implement ActorCritic for custom PPO
-3. how to sample distributions -> customize Agent
-etc...
-below example just changes 1. and some hparams
-"""
-
 from rl2.examples.temp_logger import LOG_LEVELS, Logger
+
+# FIXME: Remove later
+import os
+os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+
 
 env = gym.make('Snake-v1',
                num_snakes=1, num_fruits=1,
                width=10, height=10,
+               frame_stack=2,
                vision_range=5)
 env = SingleAgent(env)
 
@@ -41,19 +34,18 @@ config = DEFAULT_DQN_CONFIG
 # Or Customize your config
 myconfig = {
     'buffer_size': 1000000,
-    'batch_size': 64,
+    'batch_size': 1024,
     'num_epochs': 1,
     'update_interval': 100000,
     'train_interval': 1,
     'log_interval': 100,
     'lr': 1e-4,
     'gamma': 0.99,
-    'eps': 0.01,
+    'eps': 0.0001,
     'polyak': 0,
     'decay_step': 500000,
     'grad_clip': 10,
-    'log_dir': './runs',
-    'tag': 'DQN/SNAKE/VR/ED500K',
+    'tag': 'DQN/SNAKE/FS/',
     'double': False,
     'log_level': 10,
 }
@@ -79,7 +71,6 @@ if __name__ == '__main__':
                      )
 
     agent = DQNAgent(model,
-                     action_n=action_n,
                      update_interval=config.update_interval,
                      train_interval=config.train_interval,
                      num_epochs=config.num_epochs,
