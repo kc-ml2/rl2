@@ -178,7 +178,8 @@ class IndividualEpisodicWorker(MultiAgentRolloutWorker):
 
     def rollout(self):
         acs = []
-        infos = [{} for _ in range(len(self.agents))]
+        # infos = [{} for _ in range(len(self.agents))]
+        infos = self.infos
         for agent, obs in zip(self.agents, self.obs):
             ac = agent.act(obs)
             acs.append(ac)
@@ -200,9 +201,9 @@ class IndividualEpisodicWorker(MultiAgentRolloutWorker):
                     #             infos[i]['env_{}'.format(env_i)] = info_i
                     #     infos[i].update(info_a)
                     # else:
-                    for key in list(info_a.keys()):
-                        info_a['agent_{}/'.format(i)+key] = info_a.pop(key)
-                    infos[i].update(info_a)
+                    # for key in list(info_a.keys()):
+                    #     info_a['agent_{}/'.format(i)+key] = info_a.pop(key)
+                    self.infos[i].update(info_a)
         if self.render:
             # how to deal with render mode?
             # FIXME: deal with render interval for MaxStepWorker
@@ -231,26 +232,35 @@ class IndividualEpisodicWorker(MultiAgentRolloutWorker):
                 dones, infos, results = self.rollout()
                 self.num_steps_ep += 1
                 for i in np.where(dones)[0]:
-                    if len(self.infos[i]) == 0:
-                        self.scores[i].append(self.rews[i])
-                        avg_score = np.mean(list(self.scores[i]))
-
-                        info_r = {
-                            'agent_{}/Episodic/rews'.format(i): self.rews[i],
-                            'agent_{}/Episodic/rews_avg'.format(i): avg_score,
-                            'agent_{}/Episodic/ep_length'.format(i): self.num_steps_ep
-                        }
-                        self.infos[i].update({**infos[i], **info_r})
+                    # Agent specific values to log
+                    self.scores[i].append(self.rews[i])
+                    avg_score = np.mean(list(self.scores[i]))
+                    info_r = {
+                        'Counts/agent_steps': self.agents[i].curr_step,
+                        'Episodic/rews': self.rews[i],
+                        'Episodic/rews_avg': avg_score,
+                        'Episodic/ep_length': self.num_steps_ep
+                    }
+                    self.infos[i].update({**infos[i], **info_r})
 
                 if all(dones):
-                    # FIXME: Bug; Log EPS values and losses
                     if self.num_episodes % self.log_interval == 0:
+                        summary = {}
+                        for i, info in enumerate(self.infos):
+                            for k, v in info.items():
+                                if k not in summary.keys():
+                                    summary.update(
+                                        {k: {'agent_{}'.format(i): v}})
+                                else:
+                                    summary[k].update(
+                                        {'agent_{}'.format(i): v})
+                        # Global value to log
                         counts = {'Counts/num_steps': self.num_steps,
                                   'Counts/num_episodes': self.num_episodes}
-
-                        summary = dict(ChainMap(*self.infos))
+                        # summary = dict(ChainMap(*self.infos))
                         summary.update(counts)
                         self.logger.scalar_summary(summary, self.num_steps)
+                        # self.logger.add_scalars()
                     if ((self.num_episodes-1) - 10) % self.render_interval == 0:
                         self.logger.video_summary(tag='playback',
                                                   step=self.num_steps)
@@ -258,6 +268,7 @@ class IndividualEpisodicWorker(MultiAgentRolloutWorker):
                     # Reset variables
                     self.rews = np.zeros(len(self.agents))
                     self.num_steps_ep = 0
+                    self.infos = [{} for _ in range(len(self.agents))]
                     break
 
 

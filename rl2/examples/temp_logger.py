@@ -4,6 +4,7 @@ import logging
 import os
 import sys
 import traceback
+from typing import Dict
 import numpy as np
 from datetime import datetime
 from pathlib import Path
@@ -91,16 +92,28 @@ class Logger:
             json.dump(config, f)
 
     def scalar_summary(self, info, step, lvl="INFO", tag='values'):
+        """
+        info should be dictionary with
+        key: str
+        value: scalar or dictionary
+        if value is dict, it will be used as tag_scalar_dict for add_scalars 
+        function and plotted on the same graph.
+        """
         assert isinstance(info, dict), "data must be a dictionary"
         # flush to terminal
         if self.args.log_level <= LOG_LEVELS[lvl]['lvl']:
             key2str = {}
+            scalars = {}
             for key, val in info.items():
                 if isinstance(val, float):
                     valstr = "%-8.3g" % (val,)
+                elif isinstance(val, dict):
+                    mean = np.mean(list(val.values()))
+                    valstr = "%-8.3g" % (mean,)
+                    scalars.update({key: val})
+                    key = 'Mean/' + key
                 else:
                     valstr = str(val)
-                # key2str[self._truncate(key)] = self._truncate(valstr)
                 key2str[key] = valstr
 
             if len(key2str) == 0:
@@ -122,6 +135,8 @@ class Logger:
             lines.append(dashes)
             print('\n'.join(lines))
 
+        for key in scalars.keys():
+            info.pop(key)
         # flush to csv
         if self.log_dir is not None:
             filepath = Path(os.path.join(self.log_dir, tag + '.csv'))
@@ -138,6 +153,8 @@ class Logger:
         if self.writer is not None:
             for k, v in info.items():
                 self.writer.add_scalar(k, v, step)
+            for k, v in scalars.items():
+                self.writer.add_scalars(k, v, step)
 
     def store_rgb(self, rgb_array):
         # FIXME: safe way to store image buffer

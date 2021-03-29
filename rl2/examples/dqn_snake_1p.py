@@ -14,9 +14,9 @@ os.environ['CUDA_VISIBLE_DEVICES'] = '1'
 
 
 env = gym.make('Snake-v1',
-               num_snakes=1, num_fruits=1,
-               width=10, height=10,
-               frame_stack=2,
+               num_snakes=1, num_fruits=4,
+               width=20, height=20,
+               frame_stack=4,
                vision_range=5)
 env = SingleAgent(env)
 
@@ -43,10 +43,10 @@ myconfig = {
     'gamma': 0.99,
     'eps': 0.0001,
     'polyak': 0,
-    'decay_step': 500000,
+    'decay_step': 1000000,
     'grad_clip': 10,
-    'tag': 'DQN/SNAKE/FS/',
-    'double': False,
+    'tag': 'DDQN/SNAKE/FS4/MS20NF4',
+    'double': True,
     'log_level': 10,
 }
 config = EasyDict(myconfig)
