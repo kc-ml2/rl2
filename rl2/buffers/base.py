@@ -175,22 +175,31 @@ class TemporalMemory(ReplayBuffer):
             ]
         )
         self.n_env = n_env
+        self.shuffle()
+
+    def shuffle(self):
+        self.time_idx_queue = np.random.permutation(self.max_size * self.n_env)
+        self.env_idx_queue = np.random.permutation(self.n_env)
+        self.start = 0
 
     def push(self, s, a, r, d, v, nlp):
         super().push(state=s, action=a, reward=r, done=d, value=v, nlp=nlp)
 
     def sample(self, num, idx=None, return_idx=False, recurrent=False):
         env_sample_size = 1
+        num_skip = num
         if recurrent:
-            assert num > self.n_env
+            assert num > self.max_size
             idx = np.arange(self.max_size)
             env_sample_size = num // self.max_size
+            num_skip = env_sample_size
         transitions = super().sample(num, idx=idx, return_idx=return_idx)
 
         if self.n_env > 1:
             if recurrent:
                 idx = transitions.idx
-                sub_idx = np.random.permutation(self.n_env)[:env_sample_size]
+                # sub_idx = np.random.permutation(self.n_env)[:env_sample_size]
+                sub_idx = self.env_idx_queue[self.start:self.start + num_skip]
                 output = [transitions.state[:, sub_idx],
                           transitions.action[:, sub_idx].reshape(-1, 1),
                           transitions.reward[:, sub_idx].reshape(-1, 1),
@@ -200,8 +209,13 @@ class TemporalMemory(ReplayBuffer):
                 mesh = np.array(np.meshgrid(idx, sub_idx)).T.reshape(-1, 2).T
                 idx = mesh[0]
                 sub_idx = mesh[1]
+                self.start += num_skip
+                if self.start > self.n_env:
+                    self.start = 0
             else:
-                rand_idx = np.random.permutation(num * self.n_env)[:num]
+                # rand_idx = np.random.permutation(self.curr_size * self.n_env)[:num]
+                rand_idx = self.time_idx_queue[self.start:
+                                               self.start + num_skip]
                 state = transitions.state
                 scalars = [transitions.action, transitions.reward,
                            transitions.done, transitions.value,
@@ -210,19 +224,10 @@ class TemporalMemory(ReplayBuffer):
                           *[el.reshape(-1, 1)[rand_idx] for el in scalars]]
                 idx = transitions.idx[rand_idx // self.n_env]
                 sub_idx = rand_idx % self.n_env
+                self.start += num_skip
+                if self.start > self.curr_size:
+                    self.start = 0
 
-        # rand_idx = np.random.randint(self.n_env, size=(num, env_sample_size))
-        # # state = np.take_along_axis(transitions.state, rand_idx, axis=1)
-        # # action = np.take_along_axis(transitions.action, rand_idx, axis=1)
-        # state = transitions.state[:, rand_idx]
-        # action = transitions.action[:, rand_idx].reshape(-1, 1)
-        # reward = transitions.reward[:, rand_idx].reshape(-1, 1)
-        # done = transitions.done[:, rand_idx]
-        # if not recurrent:
-        #     done = done.reshape(-1, 1)
-        # value = transitions.value[:, rand_idx].reshape(-1, 1)
-        # nlp = transitions.nlp[:, rand_idx].reshape(-1, 1)
-        # output = [state, action, reward, done, value, nlp]
         if return_idx:
             output.append((idx, sub_idx))
 

@@ -29,8 +29,8 @@ def make_snake():
 
 def make_single():
     n_env = 1
-    # env = make_cartpole()()
-    env = make_snake()()
+    env = make_cartpole()()
+    # env = make_snake()()
     observation_shape = env.observation_space.shape
     action_shape = (env.action_space.n,)
     high = env.observation_space.high
@@ -48,13 +48,14 @@ def make_vec():
     return n_env, env, observation_shape, action_shape, high
 
 
-n_env, env, observation_shape, action_shape, high = make_vec()
+n_env, env, observation_shape, action_shape, high = make_single()
 reorder = True
 
 
 def ppo():
     model = PPOModel(observation_shape,
                      action_shape,
+                     recurrent=True,
                      discrete=True,
                      reorder=reorder,
                      optimizer='torch.optim.RMSprop',
@@ -67,7 +68,7 @@ def ppo():
                      train_interval=train_interval,
                      n_env=n_env,
                      batch_size=batch_size,
-                     num_epochs=(train_interval * n_env) // batch_size * epoch,
+                     num_epochs=epoch,
                      buffer_kwargs={'size': train_interval,
                                     'n_env': num_env})
     return agent
@@ -81,16 +82,17 @@ def ddpg():
     train_interval = 1
     num_env = 1
     epoch = 1
-    batch_size = 32
+    batch_size = 256
     agent = DDPGAgent(model,
                       train_interval=train_interval,
+                      update_interval=10000,
                       batch_size=batch_size,
                       num_epochs=epoch)
     return agent
 
 
-agent = ppo()
-# agent = ddpg()
+# agent = ppo()
+agent = ddpg()
 worker = MaxStepWorker(env, n_env, agent, max_steps=int(5e6), training=True)
 
 worker.run()

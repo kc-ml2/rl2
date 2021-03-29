@@ -1,8 +1,8 @@
 from typing import Callable
+import os
 import torch
 import torch.nn.functional as F
 import numpy as np
-from collections.abc import Iterable
 
 from rl2.agents.base import Agent
 from rl2.models.torch.base import TorchModel, BranchModel
@@ -90,33 +90,9 @@ class PPOModel(TorchModel):
         self.init_params(self.policy)
         self.init_params(self.value)
 
-    def _clean(self):
-        # TODO: this function should be moved to base class
-        for mod in self.children():
-            if isinstance(mod, BranchModel):
-                mod.reset_encoder_memory()
-
-    def _update_hidden(self, dones, new_hidden):
-        # TODO: this function should be moved to base class
-        hidden = new_hidden[0]
-        cellstate = new_hidden[1]
-        done_idx = np.where(np.asarray(dones) == 1)[0]
-        hidden[0, done_idx, :] = torch.zeros(
-            len(done_idx), self.encoded_dim).to(self.device)
-        cellstate[0, done_idx, :] = torch.zeros(
-            len(done_idx), self.encoded_dim).to(self.device)
-        self.hidden = (hidden, cellstate)
-
-    def _init_hidden(self, dones):
-        # TODO: this function should be moved to base class
-        if not isinstance(dones, Iterable):
-            dones = [dones]
-        H = torch.zeros(1, len(dones), self.encoded_dim).to(self.device)
-        C = torch.zeros(1, len(dones), self.encoded_dim).to(self.device)
-        self.hidden = (H, C)
-
+    @TorchModel.sharedbranch
     def forward(self, obs, **kwargs) -> torch.tensor:
-        # TODO: The observation should be shaped differently rather
+        # The observation should be shaped differently rather
         # the model is currently using recurrent embedding or not.
         # It is assumed that the minibatch will have a full sequence so
         # each forward call should never have to receive hidden state
@@ -128,23 +104,7 @@ class PPOModel(TorchModel):
             action_dist = action_dist[0]
             value_dist = value_dist[0]
 
-        # TODO: All calls to _clean should be handled using a decorator
-        self._clean()
         return action_dist, value_dist
-
-    def _infer_from_numpy(self, net, obs):
-        # TODO: this function should be moved to base class
-        obs = torch.from_numpy(obs).float().to(self.device)
-        # if len(observation.shape) == len(self.observation_shape):
-        #     observation = observation.unsqueeze(0)
-        hidden = None
-        with torch.no_grad():
-            if self.recurrent:
-                dist, hidden = net(obs.unsqueeze(0), hidden=self.hidden)
-            else:
-                dist = net(obs)
-
-        return dist, hidden
 
     def act(self, obs: np.ndarray, get_log_prob=False) -> np.ndarray:
         action_dist, hidden = self._infer_from_numpy(self.policy, obs)
@@ -154,7 +114,6 @@ class PPOModel(TorchModel):
             log_prob = log_prob.detach().cpu().numpy()
         action = action.detach().cpu().numpy()
 
-        self._clean()
         info = {}
         if get_log_prob:
             info['log_prob'] = log_prob
@@ -168,17 +127,20 @@ class PPOModel(TorchModel):
         value = value_dist.mean.squeeze()
         value = value.detach().cpu().numpy()
 
-        self._clean()
         info = {}
         if self.recurrent:
             info['hidden'] = hidden
+
         return value
 
     def save(self, save_dir):
-        pass
+        torch.save(self.state_dict(),
+                   os.path.join(save_dir, type(self).__name__ + '.pt'))
+        print(f'model saved in {save_dir}')
 
-    def load(self, save_dir):
-        pass
+    def load(self, load_dir):
+        ckpt = torch.load(load_dir, map_location=self.device)
+        self.load_state_dict(ckpt)
 
 
 class PPOAgent(Agent):
@@ -238,6 +200,11 @@ class PPOAgent(Agent):
     def step(self, s, a, r, d, s_):
         self.curr_step += 1
         self.collect(s, a, r, self.done, self.value, self.nlp)
+        self.done = d
+
+        if self.model.recurrent:
+            self.model._update_hidden(d, self.hidden)
+
         if self.curr_step % self.train_interval == 0:
             value = self.model.val(s_)
             advs = general_advantage_estimation(self.buffer.to_dict(),
@@ -245,31 +212,39 @@ class PPOAgent(Agent):
                                                 self.gamma, self.lamda)
             self.train(advs)
             self.buffer.reset()
-        self.done = d
-
-        # TODO: should recurrent method be handled in base class?
-        if self.model.recurrent:
-            self.model._update_hidden(d, self.hidden)
-            self.pre_hidden = self.model.hidden
+            if self.model.recurrent:
+                self.pre_hidden = self.model.hidden
 
         info = dict()
         return info
 
     def train(self, advs, **kwargs):
+        losses = []
         for _ in range(self.num_epochs):
-            batch_data = self.buffer.sample(self.batch_size, return_idx=True,
-                                            recurrent=self.model.recurrent)
-            idx, sub_idx = batch_data[-1]
-            batch_data = (*batch_data[:-1],
-                          np.expand_dims(advs[idx, sub_idx], axis=1))
-            if self.model.recurrent:
-                env_idx = sub_idx.reshape(self.buffer.max_size, -1)[0]
-                hidden = tuple([ph[:, env_idx] for ph in self.pre_hidden])
-            else:
-                hidden = None
-            loss = self.loss_func(batch_data, self.model, hidden=hidden)
-            self.model.policy.step(loss, retain_graph=True)
-            self.model.value.step(loss)
+            num_minibatches = (self.buffer.curr_size * self.n_env
+                               // self.batch_size)
+            self.buffer.shuffle()
+            for mb_idx in range(num_minibatches):
+                batch_data = self.buffer.sample(
+                    self.batch_size, return_idx=True,
+                    recurrent=self.model.recurrent)
+                idx, sub_idx = batch_data[-1]
+                batch_data = (*batch_data[:-1],
+                              np.expand_dims(advs[idx, sub_idx], axis=1))
+                if self.model.recurrent:
+                    env_idx = sub_idx.reshape(self.buffer.max_size, -1)[0]
+                    hidden = tuple([ph[:, env_idx] for ph in self.pre_hidden])
+                else:
+                    hidden = None
+                loss = self.loss_func(batch_data, self.model, hidden=hidden)
+                self.model.policy.step(loss, retain_graph=True)
+                self.model.value.step(loss)
+                losses.append(loss.item())
+
+        info = {
+            'Loss/All': sum(losses) / len(losses)
+        }
+        return info
 
     def collect(self, *args):
         self.buffer.push(*args)

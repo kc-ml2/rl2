@@ -100,6 +100,52 @@ class TorchModel(nn.Module):
 
         return loss_fn
 
+    def sharedbranch(func):
+        # Decorator function for using shared memory for the encoders
+        def inner(self, *args, **kwargs):
+            for mod in self.children():
+                if isinstance(mod, BranchModel):
+                    mod.use_encoder_memory()
+
+            results = func(self, *args, **kwargs)
+
+            # Previously _clean() function
+            for mod in self.children():
+                if isinstance(mod, BranchModel):
+                    mod.reset_encoder_memory()
+            return results
+
+        return inner
+
+    def _init_hidden(self, dones):
+        if not isinstance(dones, Iterable):
+            dones = [dones]
+        hidden = torch.zeros(1, len(dones), self.encoded_dim).to(self.device)
+        cell = torch.zeros(1, len(dones), self.encoded_dim).to(self.device)
+
+        self.hidden = (hidden, cell)
+
+    def _update_hidden(self, dones, new_hidden):
+        hidden = new_hidden[0]
+        cell = new_hidden[1]
+        done_idx = np.where(np.asarray(dones) == 1)[0]
+        hidden[0, done_idx, :] = torch.zeros(
+            len(done_idx), self.encoded_dim).to(self.device)
+        cell[0, done_idx, :] = torch.zeros(
+            len(done_idx), self.encoded_dim).to(self.device)
+        self.hidden = (hidden, cell)
+
+    def _infer_from_numpy(self, net, obs):
+        obs = torch.from_numpy(obs).float().to(self.device)
+        hidden = None
+        with torch.no_grad():
+            if self.recurrent:
+                dist, hidden = net(obs.unsqueeze(0), hidden=self.hidden)
+            else:
+                dist = net(obs)
+
+        return dist, hidden
+
 
 class PolicyBasedModel(TorchModel):
     """
@@ -203,6 +249,7 @@ class BaseEncoder(nn.Module):
         self.reorder = reorder
         self.flatten = flatten
         self.memory = {}
+        self.use_memory = False
         self.rnn = None
         if recurrent:
             self.rnn = LSTM(encoded_dim, encoded_dim)
@@ -232,11 +279,14 @@ class BaseEncoder(nn.Module):
             x = x.reshape(seq_len, batch_size, *x.shape[1:])
             x, hidden = self.rnn(x, **kwargs)
             x = x.reshape(-1, *x.shape[2:])
-            self.memory[input_id] = x
-            return x, hidden
+            returns = (x, hidden)
         else:
-            self.memory[input_id] = x
-            return x
+            returns = x
+
+        if self.use_memory:
+            self.memory[input_id] = returns
+
+        return returns
 
     def reset_memory(self):
         self.memory = {}
@@ -346,10 +396,10 @@ class BranchModel(TorchModel):
         dims = [encoded_dim, output_dim]
         if discrete:
             if deterministic:
-                # distribution = 'GumbelSoftmax'
+                distribution = 'GumbelSoftmax'
                 # Change for dqn default head
                 # remove GumbelSoftmax if DPG cant handle discrete action_space
-                distribution = 'Scalar'
+                # distribution = 'Scalar'
             else:
                 distribution = 'Categorical'
         else:
@@ -363,43 +413,54 @@ class BranchModel(TorchModel):
 
         return head
 
+    def use_encoder_memory(self):
+        for mod in self.children():
+            if isinstance(mod, BaseEncoder):
+                mod.use_memory = True
+                mod.reset_memory()
+
     def reset_encoder_memory(self):
         for mod in self.children():
             if isinstance(mod, BaseEncoder):
                 mod.reset_memory()
+                mod.use_memory = False
 
     def update_trg(self, alpha=0.0):
         self.polyak_update(self.encoder, self.encoder_target, alpha)
         self.polyak_update(self.head, self.head_target, alpha)
 
-    def forward(self, observation, **kwargs):
+    def _handle_obs_shape(self, observation):
         if len(observation.shape) == len(self.observation_shape):
             observation = observation.unsqueeze(0)
         if (self.recurrent
            and len(observation.shape) == len(self.observation_shape) + 1):
             observation = observation.unsqueeze(0)
+
+        return observation
+
+    def forward(self, observation, **kwargs):
+        observation = self._handle_obs_shape(observation)
         ir = self.encoder(observation, **kwargs)
         if self.recurrent:
             hidden = ir[1]
             ir = ir[0]
-            output = self.head(ir)
-            return output, hidden
-
         output = self.head(ir)
+
+        if self.recurrent:
+            return output, hidden
         return output
 
     def forward_trg(self, observation, **kwargs):
+        observation = self._handle_obs_shape(observation)
         with torch.no_grad():
-            if len(observation.shape) == len(self.observation_shape):
-                observation = observation.unsqueeze(0)
             ir = self.encoder_target(observation, **kwargs)
             if self.recurrent:
                 hidden = ir[1]
                 ir = ir[0]
-                output = self.head(ir)
-                return output, hidden
-
             output = self.head_target(ir)
+
+        if self.recurrent:
+            return output, hidden
         return output
 
     def step(self, loss, retain_graph=False):
@@ -467,22 +528,28 @@ class InjectiveBranchModel(BranchModel):
             self.head_target = copy.deepcopy(self.head)
 
     def forward(self, observation, injection, *args):
-        # TODO: check for shared memory of the same trace
-        if len(observation.shape) == len(self.observation_shape):
-            observation = observation.unsqueeze(0)
+        observation = self._handle_obs_shape(observation)
         ir = self.encoder(observation, *args)
+        if self.recurrent:
+            hidden = ir[1]
+            ir = ir[0]
         ir = torch.cat([ir, injection], dim=-1)
         output = self.head(ir)
 
+        if self.recurrent:
+            return output, hidden
         return output
 
     def forward_trg(self, observation, injection, *args):
+        observation = self._handle_obs_shape(observation)
         with torch.no_grad():
-            # TODO: check for shared memory of the same trace
-            if len(observation.shape) == len(self.observation_shape):
-                observation = observation.unsqueeze(0)
             ir = self.encoder_target(observation, *args)
+            if self.recurrent:
+                hidden = ir[1]
+                ir = ir[0]
             ir = torch.cat([ir, injection], dim=-1)
             output = self.head_target(ir)
 
+        if self.recurrent:
+            return output, hidden
         return output
