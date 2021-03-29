@@ -157,6 +157,7 @@ class PPOAgent(Agent):
                  action_high: np.ndarray = None,
                  loss_func: Callable = loss_func,
                  save_interval: int = int(1e5),
+                 update_after: int = 1,
                  gamma: float = 0.99,
                  lamda: float = 0.95,
                  log_interval: int = int(1e3),
@@ -174,6 +175,7 @@ class PPOAgent(Agent):
             self.done = [False] * n_env
         self.gamma = gamma
         self.batch_size = batch_size
+        self.update_after = 1
 
         self.value = None
         self.nlp = None
