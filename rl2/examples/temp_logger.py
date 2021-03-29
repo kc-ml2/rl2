@@ -3,6 +3,7 @@ import json
 import logging
 import os
 import sys
+import time
 import traceback
 from typing import Dict
 import numpy as np
@@ -11,11 +12,12 @@ from pathlib import Path
 from subprocess import PIPE, Popen
 
 import torch
+from torch.utils.tensorboard.summary import scalar
 
 from rl2.agents.configs import DEFAULT_DQN_CONFIG
 from tensorboard.compat.proto.summary_pb2 import Summary
 from termcolor import colored
-from torch.utils.tensorboard.writer import SummaryWriter
+from torch.utils.tensorboard.writer import FileWriter, SummaryWriter
 
 # Logging levels
 LOG_LEVELS = {
@@ -135,26 +137,50 @@ class Logger:
             lines.append(dashes)
             print('\n'.join(lines))
 
-        for key in scalars.keys():
-            info.pop(key)
         # flush to csv
+        to_csv = {}
+        for key, val in info.items():
+            if isinstance(val, dict):
+                for k, v in val.items():
+                    to_csv.update({key+'/'+k: v})
+            else:
+                to_csv.update({key: val})
         if self.log_dir is not None:
             filepath = Path(os.path.join(self.log_dir, tag + '.csv'))
             if not filepath.is_file():
                 with open(filepath, 'w') as f:
                     writer = csv.writer(f)
-                    writer.writerow(['step'] + list(info.keys()))
+                    writer.writerow(['step'] + list(to_csv.keys()))
 
             with open(filepath, 'a') as f:
                 writer = csv.writer(f)
-                writer.writerow([step] + list(info.values()))
+                writer.writerow([step] + list(to_csv.values()))
+
+        for k, v in scalars.items():
+            info.update({k: np.mean(list(v.values()))})
 
         # flush to tensorboard
         if self.writer is not None:
             for k, v in info.items():
                 self.writer.add_scalar(k, v, step)
             for k, v in scalars.items():
-                self.writer.add_scalars(k, v, step)
+                self.add_scalars(k, v, step)
+
+    def add_scalars(self, main_tag, tag_scalar_dict, global_step=None, walltime=None):
+        torch._C._log_api_usage_once("tensorboard.logging.add_scalars")
+        walltime = time.time() if walltime is None else walltime
+        fw_logdir = self.writer._get_file_writer().get_logdir()
+        for tag, scalar_value in tag_scalar_dict.items():
+            fw_tag = fw_logdir + "/" + tag
+            if fw_tag in self.writer.all_writers.keys():
+                fw = self.writer.all_writers[fw_tag]
+            else:
+                fw = FileWriter(fw_tag, self.writer.max_queue,
+                                self.writer.flush_secs,
+                                self.writer.filename_suffix)
+                self.writer.all_writers[fw_tag] = fw
+            fw.add_summary(scalar(main_tag, scalar_value),
+                           global_step, walltime)
 
     def store_rgb(self, rgb_array):
         # FIXME: safe way to store image buffer

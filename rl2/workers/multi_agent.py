@@ -168,7 +168,6 @@ class IndividualEpisodicWorker(MultiAgentRolloutWorker):
         self.max_steps_per_ep = int(max_steps_per_ep)
         self.log_interval = int(log_interval)
         self.render_mode = kwargs.setdefault('render_mode', 'rgb_array')
-        # self.render_interval = kwargs.setdefault('render_interval', 1000)
         self.num_steps_ep = 0
         self.rews = np.zeros(len(self.agents))
         self.scores = [deque(maxlen=100) for _ in range(len(self.agents))]
@@ -178,8 +177,8 @@ class IndividualEpisodicWorker(MultiAgentRolloutWorker):
 
     def rollout(self):
         acs = []
-        # infos = [{} for _ in range(len(self.agents))]
-        infos = self.infos
+        infos = [{} for _ in range(len(self.agents))]
+        # infos = self.infos
         for agent, obs in zip(self.agents, self.obs):
             ac = agent.act(obs)
             acs.append(ac)
@@ -241,7 +240,7 @@ class IndividualEpisodicWorker(MultiAgentRolloutWorker):
                         'Episodic/rews_avg': avg_score,
                         'Episodic/ep_length': self.num_steps_ep
                     }
-                    self.infos[i].update({**infos[i], **info_r})
+                    self.infos[i].update(info_r)
 
                 if all(dones):
                     if self.num_episodes % self.log_interval == 0:
@@ -257,10 +256,9 @@ class IndividualEpisodicWorker(MultiAgentRolloutWorker):
                         # Global value to log
                         counts = {'Counts/num_steps': self.num_steps,
                                   'Counts/num_episodes': self.num_episodes}
-                        # summary = dict(ChainMap(*self.infos))
                         summary.update(counts)
-                        self.logger.scalar_summary(summary, self.num_steps)
-                        # self.logger.add_scalars()
+                        if all([agent.curr_step > agent.update_after for agent in self.agents]):
+                            self.logger.scalar_summary(summary, self.num_steps)
                     if ((self.num_episodes-1) - 10) % self.render_interval == 0:
                         self.logger.video_summary(tag='playback',
                                                   step=self.num_steps)
@@ -268,7 +266,7 @@ class IndividualEpisodicWorker(MultiAgentRolloutWorker):
                     # Reset variables
                     self.rews = np.zeros(len(self.agents))
                     self.num_steps_ep = 0
-                    self.infos = [{} for _ in range(len(self.agents))]
+                    # self.infos = [{} for _ in range(len(self.agents))]
                     break
 
 

@@ -28,7 +28,7 @@ myconfig = {
     'num_epochs': 1,
     'update_interval': 100000,
     'train_interval': 1,
-    'log_interval': 100,
+    'log_interval': 10,
     'lr': 1e-4,
     'gamma': 0.99,
     'eps': 0.0001,
