@@ -132,8 +132,11 @@ class GumbelSoftmaxDist(torch.distributions.Distribution):
 
     @property
     def mean(self):
-        return F.softmax(self.logits, dim=-1)
-        # return F.gumbel_softmax(self.logits, dim=-1, tau=1.0, hard=False)
+        # return F.softmax(self.logits, dim=-1)
+        return F.gumbel_softmax(self.logits, dim=-1, tau=1.0, hard=False)
+
+    def sample(self):
+        return F.gumbel_softmax(self.logits, dim=-1, tau=1.0, hard=True)
 
 
 def MixedDist(main_dist, aux_dists):

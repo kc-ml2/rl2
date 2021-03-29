@@ -8,7 +8,7 @@ import torch.nn.functional as F
 from torch.distributions import Distribution
 from rl2.agents.base import Agent
 from rl2.buffers.base import ExperienceReplay, ReplayBuffer
-from rl2.models.torch.base import PolicyBasedModel, ValueBasedModel
+from rl2.models.torch.base import TorchModel
 from rl2.models.torch.base import InjectiveBranchModel, BranchModel
 
 
@@ -57,7 +57,6 @@ def loss_func_cr_mix(data, model, **kwargs):
         s_r = s.repeat_interleave(num_action, dim=0)
         a = a.repeat(num_batch, 1)
 
-        import pdb; pdb.set_trace()
         q = model.q(s_r, a).mean
         q = q.reshape(num_batch, -1)
 
@@ -71,7 +70,7 @@ def loss_func_cr_mix(data, model, **kwargs):
     return loss
 
 
-class DDPGModel(PolicyBasedModel, ValueBasedModel):
+class DDPGModel(TorchModel):
     """
     predefined model
     (same one as original paper)
@@ -159,6 +158,7 @@ class DDPGModel(PolicyBasedModel, ValueBasedModel):
             if isinstance(mod, BranchModel):
                 mod.reset_encoder_memory()
 
+    @TorchModel.sharedbranch
     def forward(self, obs) -> Distribution:
         obs = obs.to(self.device)
         state_ac = self.enc_ac(obs)
@@ -258,12 +258,14 @@ class DDPGAgent(Agent):
             obs = np.expand_dims(obs, axis=0)
         action = self.model.act(obs)
         if self.model.discrete:
-            action = np.argmax(action, axis=-1)
-            if self.explore:
-                if np.random.random() < self.eps:
-                    action = np.random.randint(self.model.action_shape[0],
-                                               size=action.shape)
-            action = action.squeeze()
+            self.action_param = action
+            # action = np.argmax(action, axis=-1)
+            action = np.random.choice(action.shape[-1], p=action.squeeze())
+            # if self.explore:
+            #     if np.random.random() < self.eps:
+            #         action = np.random.randint(self.model.action_shape[0],
+            #                                    size=action.shape)
+            # action = action.squeeze()
         else:
             if self.explore:
                 action += self.eps * np.random.randn(*action.shape)
@@ -272,6 +274,8 @@ class DDPGAgent(Agent):
         return action
 
     def step(self, s, a, r, d, s_):
+        if self.model.discrete:
+            a = self.action_param
         self.collect(s, a, r, d, s_)
         info = {}
         if (self.curr_step % self.train_interval == 0 and
@@ -292,9 +296,9 @@ class DDPGAgent(Agent):
         for _ in range(self.num_epochs):
             batch = self.buffer.sample(self.batch_size)
             cl = self.loss_func_cr(batch, self.model, gamma=self.gamma)
-            cl_mix = self.loss_func_cr_mix(batch, self.model)
-            self.model.q.step(cl+cl_mix)
-            # self.model.q.step(cl_mix)
+            # cl_mix = self.loss_func_cr_mix(batch, self.model)
+            self.model.q.step(cl)
+            # self.model.q.step(cl+cl_mix)
 
             al = self.loss_func_ac(batch, self.model)
             self.model.mu.step(al)
@@ -308,6 +312,6 @@ class DDPGAgent(Agent):
 
     def collect(self, s, a, r, d, s_):
         self.curr_step += 1
-        if self.model.discrete:
-            a = np.eye(self.model.action_shape[0])[a]
+        # if self.model.discrete:
+        #     a = np.eye(self.model.action_shape[0])[a]
         self.buffer.push(s, a, r, d, s_)
