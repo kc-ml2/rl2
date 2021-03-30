@@ -1,4 +1,6 @@
 import math
+import os
+from pathlib import Path
 from typing import List
 from rl2.agents.base import Agent
 from rl2.workers.base import RolloutWorker
@@ -178,7 +180,6 @@ class IndividualEpisodicWorker(MultiAgentRolloutWorker):
     def rollout(self):
         acs = []
         infos = [{} for _ in range(len(self.agents))]
-        # infos = self.infos
         for agent, obs in zip(self.agents, self.obs):
             ac = agent.act(obs)
             acs.append(ac)
@@ -223,6 +224,12 @@ class IndividualEpisodicWorker(MultiAgentRolloutWorker):
         self.obss = obss
         results = None
 
+        # Save model
+        if self.is_save and self.num_steps % self.save_interval == 0:
+            if hasattr(self, 'logger'):
+                save_dir = getattr(self.logger, 'log_dir')
+            self.save(save_dir)
+
         return dones, infos, results
 
     def run(self):
@@ -266,8 +273,15 @@ class IndividualEpisodicWorker(MultiAgentRolloutWorker):
                     # Reset variables
                     self.rews = np.zeros(len(self.agents))
                     self.num_steps_ep = 0
-                    # self.infos = [{} for _ in range(len(self.agents))]
                     break
+
+    def save(self, save_dir):
+        prefix = save_dir
+        for i, agent in enumerate(self.agents):
+            save_dir = os.path.join(
+                prefix, f'agent_{i}/ckpt/{int(self.num_steps/1000)}k')
+            Path(save_dir).mkdir(parents=True, exist_ok=True)
+            agent.model.save(save_dir)
 
 
 def dynamic_class(cls1, cls2, *args, **kwargs):
