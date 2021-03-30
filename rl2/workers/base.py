@@ -1,10 +1,9 @@
-from typing import Optional
-from easydict import EasyDict
+import os
+import numpy as np
+from pathlib import Path
 from collections import deque
 from collections.abc import Iterable
-import numpy as np
 from rl2.agents.base import Agent
-from torch.utils.tensorboard import SummaryWriter
 
 
 class RolloutWorker:
@@ -24,14 +23,26 @@ class RolloutWorker:
             agent: Agent,
             training=False,
             render=False,
+            render_interval=1000,
+            is_save=False,
+            save_interval=int(1e6),
             # render_mode: str ='human',
+            **kwargs
     ):
         self.env = env
         self.n_env = n_env
         self.agent = agent
         self.training = training
+
         self.render = render
-        # self.render_mode = render_mode
+        if self.render:
+            self.render_interval = render_interval
+            self.render_mode = kwargs.get('render_mode')
+
+        self.is_save = is_save
+        if self.is_save:
+            self.save_interval = save_interval
+
         self.num_episodes = 0
         self.num_steps = 0
         self.scores = deque(maxlen=100)
@@ -44,6 +55,11 @@ class RolloutWorker:
 
     def run(self):
         raise NotImplementedError
+
+    def save(self, save_dir):
+        save_dir = os.path.join(save_dir, f'ckpt/{int(self.num_steps/1000)}k')
+        Path(save_dir).mkdir(parents=True, exist_ok=True)
+        self.agent.model.save(save_dir)
 
     def rollout(self):
         ac = self.agent.act(self.obs)
@@ -62,11 +78,17 @@ class RolloutWorker:
             # task_list = self.agent.dispatch()
             # if len(task_list) > 0:
             #     results = {bound_method.__name__: bound_method() for bound_method in task_list}
-        else:
-            # if self.render_mode:
-            if self.render:
-                # how to deal with render mode?
+        if self.render:
+            # how to deal with render mode?
+            if self.render_mode == 'rgb_array' and self.num_episodes % self.render_interval < 10:
+                rgb_array = self.env.render('rgb_array')
+                self.logger.store_rgb(rgb_array)
+            elif self.render_mode == 'ascii':
+                self.env.render(self.render_mode)
+            elif self.render_mode == 'human':
                 self.env.render()
+        # else:
+            # if self.render_mode:
         self.num_steps += self.n_env
         self.episode_score = self.episode_score + np.array(rew)
         if isinstance(done, Iterable):
@@ -76,7 +98,6 @@ class RolloutWorker:
                     if d:
                         self.scores.append(self.episode_score[d_i])
                         self.episode_score[d_i] = 0.0
-
         else:
             if done:  # do sth about ven env
                 self.num_episodes += 1
@@ -87,6 +108,12 @@ class RolloutWorker:
         self.obs = obs
         info = {**info, **{'rew': rew}}
         results = None
+
+        # Save model
+        if self.is_save and self.num_steps % self.save_interval == 0:
+            if hasattr(self, 'logger'):
+                save_dir = getattr(self.logger, 'log_dir')
+            self.save(save_dir)
 
         return done, info, results
 
@@ -120,14 +147,14 @@ class EpisodicWorker(RolloutWorker):
 
     def __init__(self, env, n_env, agent,
                  max_episodes: int = 10,
-                 max_steps_per_ep: int = 1e4,
+                 max_steps_per_ep: int = int(1e4),
                  log_interval: int = 1000,
                  logger=None,
                  **kwargs):
         super().__init__(env, n_env, agent, **kwargs)
         self.max_episodes = int(max_episodes)
         self.max_steps_per_ep = int(max_steps_per_ep)
-        self.log_interval = log_interval
+        self.log_interval = int(log_interval)
         self.num_steps_ep = 0
         self.rews = 0
         self.scores = deque(maxlen=100)
@@ -141,8 +168,10 @@ class EpisodicWorker(RolloutWorker):
                 self.num_steps_ep += 1
                 if done:
                     self.scores.append(self.rews)
-                    avg_score = sum(list(self.scores)) / len(list(self.scores))
+                    avg_score = np.mean(list(self.scores))
                     info_r = {
+                        'Counts/num_steps': self.num_steps,
+                        'Counts/num_episodes': self.num_episodes,
                         'Episodic/rews': self.rews,
                         'Episodic/rews_avg': avg_score,
                         'Episodic/ep_length': self.num_steps_ep
@@ -151,6 +180,9 @@ class EpisodicWorker(RolloutWorker):
                     info.pop('rew')
                     if self.num_episodes % self.log_interval == 0:
                         self.logger.scalar_summary(info, self.num_steps)
+                    if ((self.num_episodes-1) - 10) % self.render_interval == 0:
+                        self.logger.video_summary(tag='playback',
+                                                  step=self.num_steps)
                     self.rews = 0
                     self.num_steps_ep = 0
                     break

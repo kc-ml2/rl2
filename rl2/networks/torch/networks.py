@@ -19,6 +19,48 @@ class MLP(nn.Module):
         return self.body(x)
 
 
+class LSTM(nn.Module):
+    def __init__(self, obs_dim, h_dim):
+        super().__init__()
+        self.obs_dim = obs_dim
+        self.h_dim = h_dim
+
+        self.f_gate = nn.Linear(obs_dim + h_dim, h_dim)
+        self.i_gate = nn.Linear(obs_dim + h_dim, h_dim)
+        self.o_gate = nn.Linear(obs_dim + h_dim, h_dim)
+        self.c_gate = nn.Linear(obs_dim + h_dim, h_dim)
+
+    def forward(self, x, hidden=None, mask=None):
+        # x is given in (t, n_env, features)
+        # hidden in given as (h, c) where h and c are in (1, n_env, h_dim)
+        # mask is given in (t, n_env)
+        n_env = x.shape[1]
+        if hidden is None:
+            h = torch.zeros(1, n_env, self.h_dim).to(x)
+            c = torch.zeros(1, n_env, self.h_dim).to(x)
+        else:
+            h, c = hidden
+        outs = []
+        h = h.squeeze(0)
+        c = c.squeeze(0)
+        for t, x_t in enumerate(x):
+            if mask is not None:
+                h = (1 - mask[t]).unsqueeze(-1) * h
+                c = (1 - mask[t]).unsqueeze(-1) * c
+            x_h = torch.cat([x_t, h], -1)
+            f = torch.sigmoid(self.f_gate(x_h))
+            i = torch.sigmoid(self.i_gate(x_h))
+            o = torch.sigmoid(self.o_gate(x_h))
+            c_tilde = torch.tanh(self.c_gate(x_h))
+            c = f * c + i * c_tilde
+            h = o * torch.tanh(c)
+            outs.append(h.unsqueeze(0))
+        h = h.unsqueeze(0)
+        c = c.unsqueeze(0)
+        outs = torch.cat(outs, 0)
+        return outs, (h, c)
+
+
 class ConvEnc(nn.Module):
     def __init__(self, in_shape, encoded_dim, high=255, activ='ReLU'):
         super().__init__()
