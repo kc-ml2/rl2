@@ -98,9 +98,19 @@ class ReplayBuffer:
         self.curr_size = min(self.curr_size + 1, self.max_size)
         self.curr_idx = (self.curr_idx + 1) % self.max_size
 
-    def sample(self, num, idx=None, return_idx=False) -> Tuple[np.ndarray]:
+    def sample(self, num, idx=None, return_idx=False,
+               contiguous=1) -> Tuple[np.ndarray]:
         if idx is None:
-            sample_idx = np.random.randint(self.curr_size, size=num)
+            if contiguous > 1:
+                num_traj = num // contiguous
+                traj_idx = np.random.randint(self.curr_size - num_traj,
+                                             size=num_traj)
+                sample_idx = (traj_idx.reshape(-1, 1)
+                              + np.arange(contiguous).reshape(1, -1))
+                sample_idx = sample_idx.flatten()
+
+            else:
+                sample_idx = np.random.randint(self.curr_size, size=num)
         else:
             sample_idx = idx
         samples = self[sample_idx]
@@ -133,11 +143,17 @@ class ExperienceReplay(ReplayBuffer):
             }
         )
 
+    def reset(self):
+        super().reset()
+
     def push(self, s, a, r, d, s_):
         super().push(state=s, action=a, reward=r, done=d, state_=s_)
 
-    def sample(self, num, idx=None, return_idx=False):
-        transitions = super().sample(num, idx=idx, return_idx=return_idx)
+    def sample(self, num, idx=None, return_idx=False, contiguous=1):
+        transitions = super().sample(num,
+                                     idx=idx,
+                                     return_idx=return_idx,
+                                     contiguous=contiguous)
         output = [transitions.state, transitions.action, transitions.reward,
                   transitions.done, transitions.state_]
         if return_idx:
@@ -159,21 +175,61 @@ class TemporalMemory(ReplayBuffer):
             ]
         )
         self.n_env = n_env
+        self.shuffle()
+
+    def shuffle(self):
+        self.time_idx_queue = np.random.permutation(self.max_size * self.n_env)
+        self.env_idx_queue = np.random.permutation(self.n_env)
+        self.start = 0
 
     def push(self, s, a, r, d, v, nlp):
         super().push(state=s, action=a, reward=r, done=d, value=v, nlp=nlp)
 
-    def sample(self, num, idx=None, return_idx=False):
+    def sample(self, num, idx=None, return_idx=False, recurrent=False):
+        env_sample_size = 1
+        num_skip = num
+        if recurrent:
+            assert num > self.max_size
+            idx = np.arange(self.max_size)
+            env_sample_size = num // self.max_size
+            num_skip = env_sample_size
         transitions = super().sample(num, idx=idx, return_idx=return_idx)
-        rand_idx = np.random.randint(self.n_env)
-        output = [transitions.state, transitions.action, transitions.reward,
-                  transitions.done, transitions.value, transitions.nlp]
+
         if self.n_env > 1:
-            output = list(map(lambda x: np.expand_dims(x[:, rand_idx], axis=1)
-                              if len(x.shape) == 2 else x[:, rand_idx], output)
-                          )
+            if recurrent:
+                idx = transitions.idx
+                # sub_idx = np.random.permutation(self.n_env)[:env_sample_size]
+                sub_idx = self.env_idx_queue[self.start:self.start + num_skip]
+                output = [transitions.state[:, sub_idx],
+                          transitions.action[:, sub_idx].reshape(-1, 1),
+                          transitions.reward[:, sub_idx].reshape(-1, 1),
+                          transitions.done[:, sub_idx],
+                          transitions.value[:, sub_idx].reshape(-1, 1),
+                          transitions.nlp[:, sub_idx].reshape(-1, 1)]
+                mesh = np.array(np.meshgrid(idx, sub_idx)).T.reshape(-1, 2).T
+                idx = mesh[0]
+                sub_idx = mesh[1]
+                self.start += num_skip
+                if self.start > self.n_env:
+                    self.start = 0
+            else:
+                # rand_idx = np.random.permutation(self.curr_size * self.n_env)[:num]
+                rand_idx = self.time_idx_queue[self.start:
+                                               self.start + num_skip]
+                state = transitions.state
+                scalars = [transitions.action, transitions.reward,
+                           transitions.done, transitions.value,
+                           transitions.nlp]
+                output = [state.reshape(-1, *state.shape[2:])[rand_idx],
+                          *[el.reshape(-1, 1)[rand_idx] for el in scalars]]
+                idx = transitions.idx[rand_idx // self.n_env]
+                sub_idx = rand_idx % self.n_env
+                self.start += num_skip
+                if self.start > self.curr_size:
+                    self.start = 0
+
         if return_idx:
-            output.append((transitions.idx, rand_idx))
+            output.append((idx, sub_idx))
 
         return tuple(output)
 

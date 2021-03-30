@@ -164,6 +164,7 @@ class IndividualEpisodicWorker(MultiAgentRolloutWorker):
                  max_steps_per_ep: int = int(1e4),
                  log_interval: int = 1000,
                  logger=None,
+                 n_env=1,
                  **kwargs):
         super().__init__(env, agents, **kwargs)
         self.max_episodes = int(max_episodes)
@@ -174,40 +175,57 @@ class IndividualEpisodicWorker(MultiAgentRolloutWorker):
         self.rews = np.zeros(len(self.agents))
         self.scores = [deque(maxlen=100) for _ in range(len(self.agents))]
         self.logger = logger
+        self.n_env = n_env
         self.obss = self.obs
+        if self.n_env > 1:
+            self.obss = np.swapaxes(np.asarray(self.obs), 0, 1)
         self.infos = [{} for _ in range(len(self.agents))]
 
     def rollout(self):
         acs = []
         infos = [{} for _ in range(len(self.agents))]
-        for agent, obs in zip(self.agents, self.obs):
+        for agent, obs in zip(self.agents, self.obss):
             ac = agent.act(obs)
             acs.append(ac)
 
+        if self.n_env > 1:
+            acs = np.array(acs).T
         obss, rews, dones, info_e = self.env.step(acs)
-        self.rews += rews
+        if self.n_env > 1:
+            obss = np.swapaxes(np.asarray(obss), 0, 1)
+            rews = np.swapaxes(np.asarray(rews), 0, 1)
+            dones = np.swapaxes(np.asarray(dones), 0, 1)
+            acs = acs.T
+            self.rews += rews.mean(-1)
+        else:
+            self.rews += rews
         if self.training:
             for i, (agent, obs, ac, rew, done, obs_) in enumerate(zip(
                     self.agents, self.obss, acs, rews, dones, obss)):
-                if not done:
+                if self.n_env > 1:
                     info_a = agent.step(obs, ac, rew, done, obs_)
-                    # FIXME: Handle Vector Env
-                    # if info_e:
-                    #     if isinstance(info_e, dict):
-                    #         infos[i] = {**infos[i], **info_e}
-                    #     elif isinstance(info_e, 'list') or isinstance(info_e, 'tuple'):
-                    #         infos[i] = {**info_a}
-                    #         for env_i, info_i in enumerate(info_e):
-                    #             infos[i]['env_{}'.format(env_i)] = info_i
-                    #     infos[i].update(info_a)
-                    # else:
-                    # for key in list(info_a.keys()):
-                    #     info_a['agent_{}/'.format(i)+key] = info_a.pop(key)
                     self.infos[i].update(info_a)
+                else:
+                    if not done:
+                        info_a = agent.step(obs, ac, rew, done, obs_)
+                        # FIXME: Handle Vector Env
+                        # if info_e:
+                        #     if isinstance(info_e, dict):
+                        #         infos[i] = {**infos[i], **info_e}
+                        #     elif isinstance(info_e, 'list') or isinstance(info_e, 'tuple'):
+                        #         infos[i] = {**info_a}
+                        #         for env_i, info_i in enumerate(info_e):
+                        #             infos[i]['env_{}'.format(env_i)] = info_i
+                        #     infos[i].update(info_a)
+                        # else:
+                        # for key in list(info_a.keys()):
+                        #     info_a['agent_{}/'.format(i)+key] = info_a.pop(key)
+                        self.infos[i].update(info_a)
         if self.render:
             # how to deal with render mode?
             # FIXME: deal with render interval for MaxStepWorker
-            if self.render_mode == 'rgb_array' and self.num_episodes % self.render_interval < 10:
+            if (self.render_mode == 'rgb_array' and
+                self.num_episodes % self.render_interval < 10):
                 rgb_array = self.env.render('rgb_array')
                 # Push rgb_array to logger's buffer
                 self.logger.store_rgb(rgb_array)
@@ -216,10 +234,15 @@ class IndividualEpisodicWorker(MultiAgentRolloutWorker):
             elif self.render_mode == 'human':
                 self.env.render()
 
-        self.num_steps += 1
-        if all(dones):  # do sth about ven env
-            self.num_episodes += 1
-            obss = self.env.reset()
+        self.num_steps += self.n_env
+        if self.n_env > 1:
+            dones = dones[:, 0]
+            if all(dones):
+                self.num_episodes += 1
+        else:
+            if all(dones):  # do sth about ven env
+                self.num_episodes += 1
+                obss = self.env.reset()
         # Update next obs
         self.obss = obss
         results = None
@@ -266,9 +289,10 @@ class IndividualEpisodicWorker(MultiAgentRolloutWorker):
                         summary.update(counts)
                         if all([agent.curr_step > agent.update_after for agent in self.agents]):
                             self.logger.scalar_summary(summary, self.num_steps)
-                    if ((self.num_episodes-1) - 10) % self.render_interval == 0:
-                        self.logger.video_summary(tag='playback',
-                                                  step=self.num_steps)
+                    if self.render:
+                        if ((self.num_episodes-1) - 10) % self.render_interval == 0:
+                            self.logger.video_summary(tag='playback',
+                                                    step=self.num_steps)
 
                     # Reset variables
                     self.rews = np.zeros(len(self.agents))
