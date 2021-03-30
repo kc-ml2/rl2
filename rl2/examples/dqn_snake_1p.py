@@ -54,7 +54,6 @@ config = EasyDict(myconfig)
 
 if __name__ == '__main__':
     logger = Logger(name='DEFAULT', args=config)
-    # logger.config_summary(myconfig)
     observation_shape = env.observation_space.shape
     action_shape = (env.action_space.n,) if hasattr(
         env.action_space, 'n') else env.action_space.shape
@@ -67,7 +66,6 @@ if __name__ == '__main__':
                      polyak=config.polyak,
                      reorder=True,
                      discrete=True,
-                     #  optim_args=config.optim_args,
                      )
 
     agent = DQNAgent(model,

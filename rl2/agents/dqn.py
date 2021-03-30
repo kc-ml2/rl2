@@ -175,6 +175,8 @@ class DQNAgent(Agent):
         self.explore = explore
         self.gamma = gamma
         self.eps = LinearDecay(start=1, end=eps, decay_step=decay_step)
+        if isinstance(eps, LinearDecay):
+            self.eps = eps
 
         # Set loss function
         self.loss_func = loss_func
