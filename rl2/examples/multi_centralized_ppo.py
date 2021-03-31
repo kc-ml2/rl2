@@ -7,10 +7,9 @@ import marlenv
 from marlenv.wrappers import SingleMultiAgent, AsyncVectorMultiEnv
 
 from rl2.examples.temp_logger import LOG_LEVELS, Logger
-from rl2.agents.base import MAgent
 from rl2.agents.ppo import PPOModel, PPOAgent
 from rl2.agents.configs import DEFAULT_DQN_CONFIG
-from rl2.workers.multi_agent import EpisodicWorker, IndividualEpisodicWorker, SelfMaxStepWorker, MAMaxStepWorker
+from rl2.workers.multi_agent import CentralizedEpisodicWorker, IndividualEpisodicWorker
 
 # FIXME: Remove later
 import os
@@ -79,27 +78,33 @@ def ppo(obs_shape, ac_shape):
     batch_size = 512
     agent = PPOAgent(model,
                      train_interval=train_interval,
-                     n_env=n_env,
+                     n_env=n_env*num_snakes,
                      batch_size=batch_size,
                      num_epochs=epoch,
                      buffer_kwargs={'size': train_interval,
-                                    'n_env': num_env})
+                                    'n_env': num_env*num_snakes})
     return agent
 
 
 if __name__ == "__main__":
-    logger = Logger(name='MATEST', args=config)
-    agents = []
-    # for i, (obs_shape, act_shape) in enumerate(zip(observation_shape,
-    #                                                action_shape)):
-    for _ in range(num_snakes):
-        agents.append(ppo(observation_shape, action_shape))
-    worker = IndividualEpisodicWorker(env, agents,
-                                      max_episodes=100000,
-                                      training=True,
-                                      logger=logger,
-                                      log_interval=config.log_interval,
-                                      n_env=n_env,
-                                      render=True,
-                                      )
+    logger = Logger(name='CPPO', args=config)
+    agent = ppo(observation_shape, action_shape)
+    # agents = [ppo(observation_shape, action_shape)]*4
+    # worker = IndividualEpisodicWorker(env, agents,
+    #                                   max_episodes=100000,
+    #                                   training=True,
+    #                                   logger=logger,
+    #                                   log_interval=config.log_interval,
+    #                                   max_steps_per_ep=10000,
+    #                                   n_env=n_env,
+    #                                   render=True,
+    #                                   )
+    worker = CentralizedEpisodicWorker(env, n_env, agent,
+                                       max_episodes=100000,
+                                       training=True,
+                                       logger=logger,
+                                       log_interval=config.log_interval,
+                                       max_steps_per_ep=10000,
+                                       render=True,
+                                       )
     worker.run()

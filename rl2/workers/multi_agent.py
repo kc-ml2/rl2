@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 from typing import List
 from rl2.agents.base import Agent
-from rl2.workers.base import RolloutWorker
+from rl2.workers.base import RolloutWorker, EpisodicWorker
 import numpy as np
 from collections import deque, ChainMap
 
@@ -117,38 +117,38 @@ class MaxStepWorker(RolloutWorker):
             # TODO: when done do sth like logging from results
 
 
-class EpisodicWorker(RolloutWorker):
-    """
-    do rollout until max episodes given
-    might be useful at inference time or when training episodically
-    """
+# class EpisodicWorker(RolloutWorker):
+#     """
+#     do rollout until max episodes given
+#     might be useful at inference time or when training episodically
+#     """
 
-    def __init__(self, env, agent,
-                 max_steps: int = None,
-                 max_episodes: int = 10,
-                 max_steps_per_ep: int = 1e4,
-                 **kwargs):
-        super().__init__(env, agent, **kwargs)
-        self.max_steps = int(max_steps)
-        self.max_episodes = int(max_episodes)
-        self.max_steps_per_ep = int(math.inf) if max_steps is None else int(
-            max_steps_per_ep)
-        self.rews = 0
-        self.rews_ep = []
+#     def __init__(self, env, agent,
+#                  max_steps: int = None,
+#                  max_episodes: int = 10,
+#                  max_steps_per_ep: int = 1e4,
+#                  **kwargs):
+#         super().__init__(env, agent, **kwargs)
+#         self.max_steps = int(max_steps)
+#         self.max_episodes = int(max_episodes)
+#         self.max_steps_per_ep = int(math.inf) if max_steps is None else int(
+#             max_steps_per_ep)
+#         self.rews = 0
+#         self.rews_ep = []
 
-    def run(self):
-        for episode in range(self.max_episodes):
-            for step in range(self.max_steps_per_ep):
-                done, info, results = self.rollout()
-                self.rews += info
-                if done or step == (self.max_steps-1):
-                    self.rews_ep.append(self.rews)
-                    print(
-                        f"num_ep: {self.num_episodes}, "
-                        "episodic_reward: {self.rews}")
-                    self.rews = 0
+#     def run(self):
+#         for episode in range(self.max_episodes):
+#             for step in range(self.max_steps_per_ep):
+#                 done, info, results = self.rollout()
+#                 self.rews += info
+#                 if done or step == (self.max_steps-1):
+#                     self.rews_ep.append(self.rews)
+#                     print(
+#                         f"num_ep: {self.num_episodes}, "
+#                         "episodic_reward: {self.rews}")
+#                     self.rews = 0
 
-        # TODO: when done do sth like logging
+#         # TODO: when done do sth like logging
 
 
 class IndividualEpisodicWorker(MultiAgentRolloutWorker):
@@ -225,7 +225,7 @@ class IndividualEpisodicWorker(MultiAgentRolloutWorker):
             # how to deal with render mode?
             # FIXME: deal with render interval for MaxStepWorker
             if (self.render_mode == 'rgb_array' and
-                self.num_episodes % self.render_interval < 10):
+                    self.num_episodes % self.render_interval < 10):
                 rgb_array = self.env.render('rgb_array')
                 # Push rgb_array to logger's buffer
                 self.logger.store_rgb(rgb_array)
@@ -292,7 +292,7 @@ class IndividualEpisodicWorker(MultiAgentRolloutWorker):
                     if self.render:
                         if ((self.num_episodes-1) - 10) % self.render_interval == 0:
                             self.logger.video_summary(tag='playback',
-                                                    step=self.num_steps)
+                                                      step=self.num_steps)
 
                     # Reset variables
                     self.rews = np.zeros(len(self.agents))
@@ -306,6 +306,116 @@ class IndividualEpisodicWorker(MultiAgentRolloutWorker):
                 prefix, f'agent_{i}/ckpt/{int(self.num_steps/1000)}k')
             Path(save_dir).mkdir(parents=True, exist_ok=True)
             agent.model.save(save_dir)
+
+
+class CentralizedEpisodicWorker(EpisodicWorker):
+    def __init__(self, env, n_env, agent,
+                 max_episodes: int,
+                 max_steps_per_ep: int,
+                 log_interval: int,
+                 logger,
+                 **kwargs):
+        super().__init__(env, n_env, agent,
+                         max_episodes=max_episodes,
+                         max_steps_per_ep=max_steps_per_ep,
+                         log_interval=log_interval,
+                         logger=logger,
+                         **kwargs)
+        self.info = {}
+
+        if self.n_env > 1:
+            self.obs = self.obs.reshape(-1, *
+                                        self.agent.model.observation_shape)
+
+    def rollout(self):
+        acs = []
+        info = {}
+        acs = self.agent.act(self.obs)
+
+        if self.n_env > 1:
+            acs = acs.reshape(-1, 4)
+        obs, rews, dones, info_e = self.env.step(acs)
+        if self.n_env > 1:
+            obs = obs.reshape(-1, *self.agent.model.observation_shape)
+            rews = rews.reshape(-1,)
+            dones = rews.reshape(-1,)
+            acs = acs.T
+            acs = acs.reshape(-1,)
+            self.rews += rews.mean(-1)
+        else:
+            self.rews += rews
+        if self.training:
+            if self.n_env > 1:
+                info_a = self.agent.step(self.obs, acs, rews, dones, obs)
+                self.info.update(info_a)
+        if self.render:
+            if (self.render_mode == 'rgb_array' and
+                    self.num_episodes % self.render_interval < 10):
+                rgb_array = self.env.render('rgb_array')
+                # Push rgb_array to logger's buffer
+                self.logger.store_rgb(rgb_array)
+            elif self.render_mode == 'ascii':
+                self.env.render(self.render_mode)
+            elif self.render_mode == 'human':
+                self.env.render()
+
+        self.num_steps += self.n_env
+        if self.n_env > 1:
+            # FIXME: num_snakes?
+            dones = dones.reshape(self.n_env, 4)
+            dones = dones[0]
+            if all(dones):
+                self.num_episodes += 1
+        else:
+            if all(dones):  # do sth about ven env
+                self.num_episodes += 1
+                obs = self.env.reset()
+        # Update next obs
+        self.obs = obs
+        results = None
+
+        # Save model
+        if self.is_save and self.num_steps % self.save_interval == 0:
+            if hasattr(self, 'logger'):
+                save_dir = getattr(self.logger, 'log_dir')
+            self.save(save_dir)
+
+        return dones, info, results
+
+    def run(self):
+        for episode in range(self.max_episodes):
+            while self.num_steps_ep < self.max_steps_per_ep:
+                dones, infos, results = self.rollout()
+                self.num_steps_ep += 1
+                # Agent specific values to log
+                self.scores.append(self.rews)
+                avg_score = np.mean(list(self.scores))
+                info_r = {
+                    'Counts/agent_steps': self.agent.curr_step,
+                    'Episodic/rews': self.rews,
+                    'Episodic/rews_avg': avg_score,
+                    'Episodic/ep_length': self.num_steps_ep
+                }
+                self.info.update(info_r)
+                print(dones)
+                if all(dones):
+                    if self.num_episodes % self.log_interval == 0:
+                        summary = {}
+                        # Global value to log
+                        counts = {'Counts/num_steps': self.num_steps,
+                                  'Counts/num_episodes': self.num_episodes}
+                        summary.update(counts)
+                        summary.update(self.info)
+                        self.logger.scalar_summary(summary, self.num_steps)
+                    if self.render:
+                        if ((self.num_episodes-1) - 10) % self.render_interval == 0:
+                            self.logger.video_summary(tag='playback',
+                                                      step=self.num_steps)
+
+                    # Reset variables
+                    self.rews = 0
+                    self.num_steps_ep = 0
+                    break
 
 
 def dynamic_class(cls1, cls2, *args, **kwargs):
