@@ -320,6 +320,8 @@ class CentralizedEpisodicWorker(EpisodicWorker):
                          max_steps_per_ep=max_steps_per_ep,
                          log_interval=log_interval,
                          logger=logger,
+                         render_interval=50,
+                         render_mode='rgb_array',
                          **kwargs)
         self.info = {}
 
@@ -338,8 +340,7 @@ class CentralizedEpisodicWorker(EpisodicWorker):
         if self.n_env > 1:
             obs = obs.reshape(-1, *self.agent.model.observation_shape)
             rews = rews.reshape(-1,)
-            dones = rews.reshape(-1,)
-            acs = acs.T
+            dones = dones.reshape(-1,)
             acs = acs.reshape(-1,)
             self.rews += rews.mean(-1)
         else:
@@ -363,7 +364,7 @@ class CentralizedEpisodicWorker(EpisodicWorker):
         if self.n_env > 1:
             # FIXME: num_snakes?
             dones = dones.reshape(self.n_env, 4)
-            dones = dones[0]
+            dones = dones[0, :]
             if all(dones):
                 self.num_episodes += 1
         else:
@@ -397,7 +398,7 @@ class CentralizedEpisodicWorker(EpisodicWorker):
                     'Episodic/ep_length': self.num_steps_ep
                 }
                 self.info.update(info_r)
-                print(dones)
+                # print(dones)
                 if all(dones):
                     if self.num_episodes % self.log_interval == 0:
                         summary = {}
