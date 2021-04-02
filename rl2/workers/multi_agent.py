@@ -118,7 +118,6 @@ class MaxStepWorker(RolloutWorker):
 #     do rollout until max episodes given
 #     might be useful at inference time or when training episodically
 #     """
-
 #     def __init__(self, env, agent,
 #                  max_steps: int = None,
 #                  max_episodes: int = 10,
