@@ -207,17 +207,17 @@ class PPOAgent(Agent):
         if self.model.recurrent:
             self.model._update_hidden(d, self.hidden)
 
+        info = {}
         if self.curr_step % self.train_interval == 0:
             value = self.model.val(s_)
             advs = general_advantage_estimation(self.buffer.to_dict(),
                                                 value, d,
                                                 self.gamma, self.lamda)
-            self.train(advs)
+            info = self.train(advs)
             self.buffer.reset()
             if self.model.recurrent:
                 self.pre_hidden = self.model.hidden
 
-        info = dict()
         return info
 
     def train(self, advs, **kwargs):

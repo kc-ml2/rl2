@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from typing import Callable, Type
 from rl2.agents.base import Agent
 from rl2.buffers.base import ExperienceReplay, ReplayBuffer
-from rl2.models.torch.base import BranchModel, ValueBasedModel
+from rl2.models.torch.base import BranchModel, TorchModel
 from rl2.agents.utils import LinearDecay
 
 
@@ -29,18 +29,15 @@ def loss_func(data, model, **kwargs):
     return loss
 
 
-class DQNModel(ValueBasedModel):
+class DQNModel(TorchModel):
     """
     predefined model
     (same one as original paper)
     """
-
     def __init__(self,
                  observation_shape,
                  action_shape,
                  double: bool = False,  # Double DQN if True
-                 q_network: torch.nn.Module = None,
-                 encoder: torch.nn.Module = None,
                  encoded_dim: int = 64,
                  optim: str = 'torch.optim.RMSprop',
                  lr: float = 1e-4,
@@ -82,38 +79,35 @@ class DQNModel(ValueBasedModel):
                              **kwargs)
         self.init_params(self.q)
 
-    def _clean(self):
-        for mod in self.children():
-            if isinstance(mod, BranchModel):
-                mod.reset_encoder_memory()
-
     def act(self, obs: np.array) -> np.ndarray:
-        obs = torch.from_numpy(obs).float().to(self.device)
-        values = self.q(obs).mean
+        value_dist, hidden = self._infer_from_numpy(self.q, obs)
+        values = value_dist.mean
         action = torch.argmax(values)
         action = action.detach().cpu().numpy()
-        self._clean()
 
-        return action
+        info = {}
+        if self.recurrent:
+            info['hidden'] = hidden
+
+        return action, info
 
     def val(self, obs: np.ndarray, act: np.ndarray) -> np.ndarray:
         # TODO: Currently not using func; remove later
         obs = torch.from_numpy(obs).float().to(self.device)
         act = torch.from_numpy(act).float().to(self.device)
-        values = torch.sum((self.q(obs) * act), dim=-1, keepdim=True)
+        values = torch.sum((self.q(obs).mean * act), dim=-1, keepdim=True)
         values = values.detach().cpu().numpy()
-        self._clean()
 
         return values
 
-    def forward(self, obs: np.ndarray) -> np.ndarray:
+    def forward(self, obs: torch.Tensor, **kwargs) -> np.ndarray:
         # TODO: Currently not using func; remove later
-        obs = torch.from_numpy(obs).float().to(self.device)
-        action = self.act(obs)
-        value = self.val(obs, action)
-        self._clean()
+        obs = obs.to(self.device)
+        value_dist = self.q(obs, **kwargs)
+        if self.recurrent:
+            value_dist = value_dist[0]
 
-        return action, value
+        return value_dist
 
     def update_trg(self):
         self.q.update_trg(alpha=self.polyak)
@@ -181,19 +175,26 @@ class DQNAgent(Agent):
         # Set loss function
         self.loss_func = loss_func
 
-    def act(self, obs: np.ndarray) -> np.ndarray:
-        if len(obs.shape) in (1, 3):
-            obs = np.expand_dims(obs, axis=0)
+        # For recurrent intermediate representation
+        self.done = False
+        self.model._init_hidden(self.done)
+        self.hidden = self.model.hidden
+        self.pre_hidden = self.hidden
 
+    def act(self, obs: np.ndarray) -> np.ndarray:
+        action, info = self.model.act(obs)
         if self.explore and np.random.random() < self.eps(self.curr_step):
             action = np.random.randint(self.model.action_shape[0], size=())
-        else:
-            action = self.model.act(obs)
+
+        if self.model.recurrent:
+            self.hidden = info['hidden']
 
         return action
 
     def step(self, s, a, r, d, s_):
         self.collect(s, a, r, d, s_)
+        self.done = d
+
         info = {'Values/EPS': self.eps(self.curr_step)}
 
         if (self.curr_step % self.train_interval == 0 and

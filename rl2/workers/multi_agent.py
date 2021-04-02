@@ -1,11 +1,10 @@
-import math
 import os
 from pathlib import Path
 from typing import List
 from rl2.agents.base import Agent
 from rl2.workers.base import RolloutWorker, EpisodicWorker
 import numpy as np
-from collections import deque, ChainMap
+from collections import deque
 
 
 class MultiAgentRolloutWorker:
@@ -42,14 +41,11 @@ class MultiAgentRolloutWorker:
         raise NotImplementedError
 
     def rollout(self):
-        acs = []
-        for agent in self.agents:
-            ac = agent.act(self.obs)
-            acs.append(ac)
+        acs = [agent.act(self.obs) for agent in self.agents]
 
         obss, rews, dones, info = self.env.step(acs)
         if self.training:
-            for agent, obs, ac, rew, done, obs_ in (
+            for agent, obs, ac, rew, done, obs_ in zip(
                     self.agents, self.obs, acs, rews, dones, obss):
                 agent.step(obs, ac, rew, done, obs_)
         else:
@@ -171,7 +167,6 @@ class IndividualEpisodicWorker(MultiAgentRolloutWorker):
         self.max_steps_per_ep = int(max_steps_per_ep)
         self.log_interval = int(log_interval)
         self.render_mode = kwargs.setdefault('render_mode', 'rgb_array')
-        self.num_steps_ep = 0
         self.rews = np.zeros(len(self.agents))
         self.scores = [deque(maxlen=100) for _ in range(len(self.agents))]
         self.logger = logger
@@ -182,11 +177,8 @@ class IndividualEpisodicWorker(MultiAgentRolloutWorker):
         self.infos = [{} for _ in range(len(self.agents))]
 
     def rollout(self):
-        acs = []
         infos = [{} for _ in range(len(self.agents))]
-        for agent, obs in zip(self.agents, self.obss):
-            ac = agent.act(obs)
-            acs.append(ac)
+        acs = [agent.act(obs) for agent, obs in zip(self.agents, self.obss)]
 
         if self.n_env > 1:
             acs = np.array(acs).T
@@ -208,26 +200,11 @@ class IndividualEpisodicWorker(MultiAgentRolloutWorker):
                 else:
                     if not done:
                         info_a = agent.step(obs, ac, rew, done, obs_)
-                        # FIXME: Handle Vector Env
-                        # if info_e:
-                        #     if isinstance(info_e, dict):
-                        #         infos[i] = {**infos[i], **info_e}
-                        #     elif isinstance(info_e, 'list') or isinstance(info_e, 'tuple'):
-                        #         infos[i] = {**info_a}
-                        #         for env_i, info_i in enumerate(info_e):
-                        #             infos[i]['env_{}'.format(env_i)] = info_i
-                        #     infos[i].update(info_a)
-                        # else:
-                        # for key in list(info_a.keys()):
-                        #     info_a['agent_{}/'.format(i)+key] = info_a.pop(key)
                         self.infos[i].update(info_a)
         if self.render:
-            # how to deal with render mode?
-            # FIXME: deal with render interval for MaxStepWorker
             if (self.render_mode == 'rgb_array' and
                     self.num_episodes % self.render_interval < 10):
                 rgb_array = self.env.render('rgb_array')
-                # Push rgb_array to logger's buffer
                 self.logger.store_rgb(rgb_array)
             elif self.render_mode == 'ascii':
                 self.env.render(self.render_mode)
@@ -235,20 +212,18 @@ class IndividualEpisodicWorker(MultiAgentRolloutWorker):
                 self.env.render()
 
         self.num_steps += self.n_env
-        if self.n_env > 1:
-            dones = dones[:, 0]
-            if all(dones):
-                self.num_episodes += 1
-        else:
-            if all(dones):  # do sth about ven env
-                self.num_episodes += 1
+        if all(dones):
+            self.num_episodes += 1
+            if self.n_env > 1:
+                dones = dones[:, 0]
+            else:
                 obss = self.env.reset()
         # Update next obs
         self.obss = obss
         results = None
 
         # Save model
-        if self.is_save and self.num_steps % self.save_interval == 0:
+        if self.is_save and self.num_steps % self.save_interval < self.n_env:
             if hasattr(self, 'logger'):
                 save_dir = getattr(self.logger, 'log_dir')
             self.save(save_dir)
@@ -257,9 +232,8 @@ class IndividualEpisodicWorker(MultiAgentRolloutWorker):
 
     def run(self):
         for episode in range(self.max_episodes):
-            while self.num_steps_ep < self.max_steps_per_ep:
+            for num_steps_ep in range(self.max_steps_per_ep):
                 dones, infos, results = self.rollout()
-                self.num_steps_ep += 1
                 for i in np.where(dones)[0]:
                     # Agent specific values to log
                     self.scores[i].append(self.rews[i])
@@ -268,7 +242,7 @@ class IndividualEpisodicWorker(MultiAgentRolloutWorker):
                         'Counts/agent_steps': self.agents[i].curr_step,
                         'Episodic/rews': self.rews[i],
                         'Episodic/rews_avg': avg_score,
-                        'Episodic/ep_length': self.num_steps_ep
+                        'Episodic/ep_length': num_steps_ep
                     }
                     self.infos[i].update(info_r)
 
@@ -287,16 +261,17 @@ class IndividualEpisodicWorker(MultiAgentRolloutWorker):
                         counts = {'Counts/num_steps': self.num_steps,
                                   'Counts/num_episodes': self.num_episodes}
                         summary.update(counts)
-                        if all([agent.curr_step > agent.update_after for agent in self.agents]):
+                        if all([agent.curr_step > agent.update_after
+                               for agent in self.agents]):
                             self.logger.scalar_summary(summary, self.num_steps)
                     if self.render:
-                        if ((self.num_episodes-1) - 10) % self.render_interval == 0:
+                        num_epi_offset = self.num_episodes - 1 - 10
+                        if num_epi_offset % self.render_interval == 0:
                             self.logger.video_summary(tag='playback',
                                                       step=self.num_steps)
 
                     # Reset variables
                     self.rews = np.zeros(len(self.agents))
-                    self.num_steps_ep = 0
                     break
 
     def save(self, save_dir):
@@ -376,7 +351,7 @@ class CentralizedEpisodicWorker(EpisodicWorker):
         results = None
 
         # Save model
-        if self.is_save and self.num_steps % self.save_interval == 0:
+        if self.is_save and self.num_steps % self.save_interval == self.n_env:
             if hasattr(self, 'logger'):
                 save_dir = getattr(self.logger, 'log_dir')
             self.save(save_dir)
@@ -385,9 +360,8 @@ class CentralizedEpisodicWorker(EpisodicWorker):
 
     def run(self):
         for episode in range(self.max_episodes):
-            while self.num_steps_ep < self.max_steps_per_ep:
+            for num_steps_ep in range(self.max_steps_per_ep):
                 dones, infos, results = self.rollout()
-                self.num_steps_ep += 1
                 # Agent specific values to log
                 self.scores.append(self.rews)
                 avg_score = np.mean(list(self.scores))
@@ -395,7 +369,7 @@ class CentralizedEpisodicWorker(EpisodicWorker):
                     'Counts/agent_steps': self.agent.curr_step,
                     'Episodic/rews': self.rews,
                     'Episodic/rews_avg': avg_score,
-                    'Episodic/ep_length': self.num_steps_ep
+                    'Episodic/ep_length': num_steps_ep
                 }
                 self.info.update(info_r)
                 # print(dones)
@@ -409,13 +383,13 @@ class CentralizedEpisodicWorker(EpisodicWorker):
                         summary.update(self.info)
                         self.logger.scalar_summary(summary, self.num_steps)
                     if self.render:
-                        if ((self.num_episodes-1) - 10) % self.render_interval == 0:
+                        num_epi_offset = self.num_episodes - 1 - 10
+                        if num_epi_offset % self.render_interval == 0:
                             self.logger.video_summary(tag='playback',
                                                       step=self.num_steps)
 
                     # Reset variables
                     self.rews = 0
-                    self.num_steps_ep = 0
                     break
 
 
