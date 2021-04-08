@@ -83,31 +83,26 @@ class RolloutWorker:
             #         bound_method.__name__: bound_method()
             #         for bound_method in task_list}
         if self.render and self.start_log_image:
-            render_result = self.env.render(self.render_mode)
-            info['image'] = render_result
+            info['image'] = self.env.render(self.render_mode)
 
         self.num_steps += self.n_env
         self.episode_score = self.episode_score + np.array(rew)
-        done = np.asarray(done)
         self.ep_steps = self.ep_steps + np.ones(shape=done.shape)
-        if isinstance(done, Iterable):
-            if any(done):
-                self.num_episodes += sum(done)
-                for d_i, d in enumerate(done):
-                    if d:
-                        self.scores.append(self.episode_score[d_i])
-                        self.episode_score[d_i] = 0.
-                        self.ep_length.append(self.ep_steps[d_i])
-                        self.ep_steps[d_i] = 0.
+        done = np.asarray(done)
+        if done.size > 1:
+            self.num_episodes += sum(done)
+            for d_i in np.where(done)[0]:
+                self.scores.append(self.episode_score[d_i])
+                self.episode_score[d_i] = 0.
+                self.ep_length.append(self.ep_steps[d_i])
+                self.ep_steps[d_i] = 0.
         else:
-            if done:  # do sth about ven env
+            if done:
                 self.num_episodes += 1
                 obs = self.env.reset()
                 self.scores.append(self.episode_score)
                 self.episode_score = 0.
-        # Update next obs
         self.obs = obs
-        info = {**info, 'rew': rew}
         results = None
 
         return done, info, results
@@ -119,7 +114,7 @@ class MaxStepWorker(RolloutWorker):
     """
 
     def __init__(self, env, n_env, agent,
-                 max_steps: int, logger=None,
+                 max_steps=1000, logger=None,
                  log_interval=5000, **kwargs):
         super().__init__(env, n_env, agent, **kwargs)
         self.max_steps = int(max_steps)
@@ -156,7 +151,6 @@ class MaxStepWorker(RolloutWorker):
                     'Episodic/ep_length': np.mean(list(self.ep_length))
                 }
                 self.info.update(info_r)
-                info.pop('rew')
                 if 'image' in info.keys():
                     info.pop('image')
                 self.info.update(info)
@@ -167,9 +161,11 @@ class MaxStepWorker(RolloutWorker):
                self.num_steps % self.save_interval < self.n_env):
                 if hasattr(self, 'logger'):
                     save_dir = getattr(self.logger, 'log_dir')
+                else:
+                    save_dir = os.getcwd()
                 self.save(save_dir)
 
-            cond = done if type(done) == bool else done[0]
+            cond = done if np.asarray(done).size == 1 else done[0]
             if cond:
                 if self.time_to_log_image:
                     self.time_to_log_image = False
@@ -177,7 +173,6 @@ class MaxStepWorker(RolloutWorker):
                 elif self.start_log_image:
                     self.start_log_image = False
                     self.store_image = True
-
 
 
 class EpisodicWorker(RolloutWorker):
@@ -188,40 +183,46 @@ class EpisodicWorker(RolloutWorker):
 
     def __init__(self, env, n_env, agent,
                  max_episodes: int = 10,
-                 max_steps_per_ep: int = int(1e4),
                  log_interval: int = 1000,
                  logger=None,
                  **kwargs):
         super().__init__(env, n_env, agent, **kwargs)
         self.max_episodes = int(max_episodes)
-        self.max_steps_per_ep = int(max_steps_per_ep)
         self.log_interval = int(log_interval)
-        self.num_steps_ep = 0
-        self.scores = deque(maxlen=100)
         self.logger = logger
+        self.store_image = False
+        self.start_log_image = False
+
 
     def run(self):
-        for episode in range(self.max_episodes):
-            for num_steps_ep in range(self.max_steps_per_ep):
-                done, info, results = self.rollout()
-                self.rews += info['rew']
-                if done:
-                    self.scores.append(self.rews)
-                    avg_score = np.mean(list(self.scores))
-                    info_r = {
-                        'Counts/num_steps': self.num_steps,
-                        'Counts/num_episodes': self.num_episodes,
-                        'Episodic/rews': self.rews,
-                        'Episodic/rews_avg': avg_score,
-                        'Episodic/ep_length': num_steps_ep
-                    }
-                    info.update(info_r)
-                    info.pop('rew')
-                    if self.num_episodes % self.log_interval == 0:
-                        self.logger.scalar_summary(info, self.num_steps)
-                    num_epi_offset = self.num_episodes - 1 - 10
-                    if num_epi_offset % self.render_interval == 0:
+        while self.num_episodes < self.max_episodes:
+            prev_num_ep = self.num_episodes
+            done, info, results = self.rollout()
+
+            if self.render and self.start_log_image:
+                self.logger.store_rgb(info['image'])
+
+            log_cond = done if type(done) == bool else any(done)
+            if log_cond:
+                if (prev_num_ep // self.render_interval !=
+                   self.num_episodes // self.render_interval) and self.render:
+                    if self.start_log_image:
                         self.logger.video_summary(tag='playback',
                                                   step=self.num_steps)
-                    self.rews = 0
-                    break
+                        self.start_log_image = False
+                    else:
+                        self.start_log_image = True
+                info_r = {
+                    'Counts/num_steps': self.num_steps,
+                    'Counts/num_episodes': self.num_episodes,
+                    'Episodic/rews_avg': np.mean(list(self.scores)),
+                    'Episodic/ep_length': np.mean(list(self.ep_length))
+                }
+                self.info.update(info_r)
+                if 'image' in info.keys():
+                    info.pop('image')
+                self.info.update(info)
+                if (prev_num_ep // self.log_interval
+                   != self.num_episodes // self.log_interval):
+                    self.logger.scalar_summary(info, self.num_steps)
+                break

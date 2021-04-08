@@ -8,7 +8,7 @@ from rl2.workers import MaxStepWorker
 
 
 myconfig = {
-    'n_env': 64,
+    'n_env': 2,
     'num_snakes': 1,
     'width': 20,
     'height': 20,
@@ -16,7 +16,7 @@ myconfig = {
     'frame_stack': 2,
     'train_interval': 128,
     'epoch': 4,
-    'batch_size': 512,
+    'batch_size': 128,
     'max_step': int(5e6),
     'log_interval': 20000,
     'log_level': 10,
@@ -25,9 +25,9 @@ myconfig = {
 config = EasyDict(myconfig)
 
 
-def ppo(config, props):
-    model = PPOModel(observation_shape,
-                     action_shape,
+def ppo(obs_shape, ac_shape, config, props):
+    model = PPOModel(obs_shape,
+                     ac_shape,
                      recurrent=True,
                      discrete=True,
                      reorder=props.reorder,
@@ -67,6 +67,7 @@ if __name__ == "__main__":
     )
 
     agent = ppo(config, props)
+
     worker = MaxStepWorker(env, props.n_env, agent,
                            max_steps=config.max_step, training=True,
                            log_interval=config.log_interval,

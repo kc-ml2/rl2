@@ -242,7 +242,6 @@ class PPOAgent(Agent):
                 self.model.policy.step(loss, retain_graph=True)
                 self.model.value.step(loss)
                 losses.append(loss.item())
-
         info = {
             'Loss/All': sum(losses) / len(losses)
         }

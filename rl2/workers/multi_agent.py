@@ -2,7 +2,7 @@ import os
 from pathlib import Path
 from typing import List
 from rl2.agents.base import Agent
-from rl2.workers.base import RolloutWorker, EpisodicWorker
+from rl2.workers.base import MaxStepWorker, EpisodicWorker
 import numpy as np
 from collections import deque
 
@@ -11,6 +11,7 @@ class MultiAgentRolloutWorker:
     def __init__(
         self,
         env,
+        n_env,
         agents: List[Agent],
         training=False,
         render=False,
@@ -20,7 +21,9 @@ class MultiAgentRolloutWorker:
         **kwargs
     ):
         self.env = env
+        self.n_env = n_env
         self.agents = agents
+        self.n_agents = len(agents)
         self.training = training
 
         self.render = render
@@ -34,83 +37,209 @@ class MultiAgentRolloutWorker:
 
         self.num_episodes = 0
         self.num_steps = 0
+        self.scores = deque(maxlen=100)
+        self.ep_length = deque(maxlen=100)
+        self.episode_score = 0
+        self.ep_steps = np.zeros(self.n_env)
 
         self.obs = env.reset()
+        if self.n_env > 1 and self.n_agents > 1:
+            # In case there are both multi-env and multi-agents, put the
+            # dimension order priority in number of agents.
+            self.obs = np.array(self.obs).swapaxes(0, 1)
 
-    def run(self):
-        raise NotImplementedError
+    def save(self, save_dir):
+        for i, agent in enumerate(self.agents):
+            save_dir = os.path.join(save_dir,
+                                    f'ckpt/agent{i}/{self.num_steps//1000}k')
+            Path(save_dir).mkdir(parents=True, exist_ok=True)
+            agent.model.save(save_dir)
 
     def rollout(self):
-        acs = [agent.act(self.obs) for agent in self.agents]
+        # Number of agents should always match with number of dimensions
+        # returned and possibly the dones.
+        acs = [agent.act(obs) for agent, obs in zip(self.agents, self.obs)]
+        if self.n_env > 1 and self.n_agents > 1:
+            acs = np.array(acs).swapaxes(0, 1)
 
         obss, rews, dones, info = self.env.step(acs)
+        if self.n_env > 1 and self.n_agents > 1:
+            ep_rew = np.asarray(rews).sum(1)
+            # Swap axes so that the first dimension is agents
+            obss = np.array(obss).swapaxes(0, 1)
+            acs = np.array(acs).swapaxes(0, 1)
+            rews = np.asarray(rews).swapaxes(0, 1)
+            dones = np.asarray(dones).swapaxes(0, 1)
+        elif self.n_agents > 1:
+            ep_rew = np.asarray(rews).sum()
+        else:
+            ep_rew = np.asarray(rews)
+
+        infos = {}
+        if isinstance(info, list) or isinstance(info, tuple):
+            infos = info[0]
+        else:
+            infos = info
+
         if self.training:
             for agent, obs, ac, rew, done, obs_ in zip(
                     self.agents, self.obs, acs, rews, dones, obss):
-                agent.step(obs, ac, rew, done, obs_)
+                info_a = agent.step(obs, ac, rew, done, obs_)
+                infos.update(info_a)
+
+        if self.render:
+            infos['image'] = self.env.render(self.render_mode)
+
+        self.num_steps += self.n_env
+        self.episode_score = self.episode_score + np.array(ep_rew)
+        dones = np.asarray(dones)
+        self.ep_steps = self.ep_steps + 1
+        if self.n_env == 1:
+            if self.n_agents > 1:
+                dones = all(dones)
+            if dones:
+                self.num_episodes += 1
+                obss = self.env.reset()
+                self.scores.append(self.episode_score)
+                self.episode_score = 0.
         else:
-            if self.render:
-                self.env.render()
-        self.num_steps += 1
-        if all(dones):  # do sth about ven env
-            self.num_episodes += 1
-            obss = self.env.reset()
+            if self.n_agents > 1:
+                dones = dones.all(axis=0)
+            # Vector env + centralized
+            self.num_episodes += sum(dones)
+            for d_i in np.where(dones)[0]:
+                self.scores.append(self.episode_score[d_i])
+                self.episode_score[d_i] = np.zeros_like(
+                    self.episode_score[d_i])
+                self.ep_length.append(self.ep_steps[d_i])
+                self.ep_steps[d_i] = np.zeros_like(self.ep_steps[d_i])
+
         # Update next obs
         self.obs = obss
-        info = rews
+        results = None
+
+        return dones, infos, results
+
+
+class SelfRolloutWorker:
+    def __init__(
+        self,
+        env,
+        n_env,
+        agent,
+        n_agents=0,
+        training=False,
+        render=False,
+        render_interval=1000,
+        is_save=False,
+        save_interval=int(1e6),
+        **kwargs
+    ):
+        self.env = env
+        self.n_env = n_env
+        self.agent = agent
+        assert n_agents > 0, "Must provide n_agents"
+        self.n_agents = n_agents
+        self.training = training
+
+        self.render = render
+        if self.render:
+            self.render_interval = render_interval
+            self.render_mode = kwargs.get('render_mode')
+
+        self.is_save = is_save
+        if self.is_save:
+            self.save_interval = save_interval
+
+        self.num_episodes = 0
+        self.num_steps = 0
+        self.scores = deque(maxlen=100)
+        self.ep_length = deque(maxlen=100)
+        self.episode_score = 0
+        self.ep_steps = np.zeros(self.n_env)
+
+        self.obs = env.reset()
+        if self.n_env > 1:
+            # Squash first two dimensions to make them like a batch
+            self.obs = np.array(self.obs)
+            self.obs = self.obs.rehape((-1, *self.obs.shape[2:]))
+
+    def save(self, save_dir):
+        save_dir = os.path.join(save_dir, f'ckpt/{int(self.num_steps/1000)}k')
+        Path(save_dir).mkdir(parents=True, exist_ok=True)
+        self.agent.model.save(save_dir)
+
+    def rollout(self):
+        # Number of agents should always match with number of dimensions
+        # returned and possibly the dones.
+        acs = self.agent(self.obs).reshape(
+            self.n_env, self.n_agents, -1).squeeze()
+
+        obss, rews, dones, info = self.env.step(acs)
+        if self.n_env > 1 and self.n_agents > 1:
+            ep_rew = np.asarray(rews).mean(1)
+            # Swap axes so that the first dimension is agents
+            obss = np.asarray(obss).reshape(-1, obss.shape[2:])
+            acs = acs.flatten()
+            rews = rews.flatten()
+            dones = dones.flatten()
+        elif self.n_agents > 1:
+            ep_rew = np.asarray(rews).mean()
+        else:
+            ep_rew = np.asarray(rews)
+
+        if self.training:
+            self.agent.step(self.obs, acs, rews, dones, obss)
+
+        if self.render:
+            info['image'] = self.env.render(self.render_mode)
+
+        self.num_steps += self.n_env
+        self.episode_score = self.episode_score + np.array(ep_rew)
+        self.ep_steps = self.ep_steps + 1
+        if self.n_env == 1:
+            if self.n_agents > 1:
+                dones = all(dones)
+            if dones:
+                self.num_episodes += 1
+                obss = self.env.reset()
+                self.scores.append(self.episode_score)
+                self.episode_score = 0.
+        else:
+            if self.n_agents > 1:
+                dones = dones.all(axis=0)
+            # Vector env + centralized
+            self.num_episodes += sum(dones)
+            for d_i in np.where(dones)[0]:
+                self.scores.append(self.episode_score[d_i])
+                self.episode_score[d_i] = np.zeros_like(
+                    self.episode_score[d_i])
+                self.ep_length.append(self.ep_steps[d_i])
+                self.ep_steps[d_i] = np.zeros_like(self.ep_steps[d_i])
+
+        # Update next obs
+        self.obs = obss
         results = None
 
         return dones, info, results
 
 
-class SelfRolloutWorker(RolloutWorker):
-    def __init__(
-        self,
-        env,
-        agents,
-        training=False,
-        render=False,
-        **kwargs
-    ):
-        super().__init__(env, agents, training=training, render=render)
-
-    def rollout(self):
-        ac = self.agent.act(self.obs)
-        obs, rew, done, info = self.env.step(ac)
-        if self.training:
-            self.agent.step(self.obs, ac, rew, done, obs)
-        else:
-            if self.render:
-                # how to deal with render mode?
-                self.env.render()
-        self.num_steps += 1
-        if all(done):  # do sth about ven env
-            self.num_episodes += 1
-            obs = self.env.reset()
-        # Update next obs
-        self.obs = obs
-        info = sum(rew)
-        results = None
-
-        return done, info, results
-
-
-class MaxStepWorker(RolloutWorker):
-    """
-    do rollout until max steps given
-    """
-
-    def __init__(self, env, agent,
-                 max_steps=None, **kwargs):
-        super().__init__(env, agent, **kwargs)
-        assert max_steps is not None, 'must provide max_steps'
-        self.max_steps = int(max_steps)
-
-    def run(self):
-        for step in range(self.max_steps):
-            done, info, results = self.rollout()
-
-            # TODO: when done do sth like logging from results
+# class MaxStepWorker(RolloutWorker):
+#     """
+#     do rollout until max steps given
+#     """
+#
+#     def __init__(self, env, agent,
+#                  max_steps=None, **kwargs):
+#         super().__init__(env, agent, **kwargs)
+#         assert max_steps is not None, 'must provide max_steps'
+#         self.max_steps = int(max_steps)
+#
+#     def run(self):
+#         for step in range(self.max_steps):
+#             done, info, results = self.rollout()
+#
+#             # TODO: when done do sth like logging from results
 
 
 # class EpisodicWorker(RolloutWorker):
@@ -142,8 +271,6 @@ class MaxStepWorker(RolloutWorker):
 #                         f"num_ep: {self.num_episodes}, "
 #                         "episodic_reward: {self.rews}")
 #                     self.rews = 0
-
-#         # TODO: when done do sth like logging
 
 
 class IndividualEpisodicWorker(MultiAgentRolloutWorker):
@@ -371,7 +498,6 @@ class CentralizedEpisodicWorker(EpisodicWorker):
                     'Episodic/ep_length': num_steps_ep
                 }
                 self.info.update(info_r)
-                # print(dones)
                 if all(dones):
                     if self.num_episodes % self.log_interval == 0:
                         summary = {}
@@ -395,16 +521,28 @@ class CentralizedEpisodicWorker(EpisodicWorker):
 def dynamic_class(cls1, cls2, *args, **kwargs):
     class CombinedClass(cls1, cls2):
         def __init__(self, *args, **kwargs):
-            super().__init__(*args, **kwargs)
+            # super(combinedclass, self).__init__(*args, **kwargs)
+            cls2.__init__(self, *args, **kwargs)
+            cls1.__init__(self, *args, **kwargs)
 
     return CombinedClass(*args, **kwargs)
 
 
-def MAMaxStepWorker(env, agent, **kwargs):
-    return dynamic_class(MaxStepWorker, MultiAgentRolloutWorker,
-                         env, agent, **kwargs)
+def MAMaxStepWorker(env, n_env, agent, **kwargs):
+    return dynamic_class(MultiAgentRolloutWorker, MaxStepWorker,
+                         env, n_env, agent, **kwargs)
 
 
-def SelfMaxStepWorker(env, agent, **kwargs):
-    return dynamic_class(MaxStepWorker, SelfRolloutWorker,
-                         env, agent, **kwargs)
+def SelfMaxStepWorker(env, n_env, agent, **kwargs):
+    return dynamic_class(SelfRolloutWorker, MaxStepWorker,
+                         env, n_env, agent, **kwargs)
+
+
+def MAEpisodicWorker(env, n_env, agent, **kwargs):
+    return dynamic_class(MultiAgentRolloutWorker, EpisodicWorker,
+                         env, n_env, agent, **kwargs)
+
+
+def SelfEpisodicWorker(env, n_env, agent, **kwargs):
+    return dynamic_class(SelfRolloutWorker, EpisodicWorker,
+                         env, n_env, agent, **kwargs)

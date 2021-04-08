@@ -189,7 +189,7 @@ class TemporalMemory(ReplayBuffer):
         env_sample_size = 1
         num_skip = num
         if recurrent:
-            assert num > self.max_size
+            assert num >= self.max_size
             idx = np.arange(self.max_size)
             env_sample_size = num // self.max_size
             num_skip = env_sample_size
@@ -227,6 +227,8 @@ class TemporalMemory(ReplayBuffer):
                 self.start += num_skip
                 if self.start > self.curr_size:
                     self.start = 0
+        else:
+            raise NotImplementedError
 
         if return_idx:
             output.append((idx, sub_idx))
