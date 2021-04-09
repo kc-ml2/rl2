@@ -37,8 +37,9 @@ class DQNModel(TorchModel):
     def __init__(self,
                  observation_shape,
                  action_shape,
-                 double: bool = False,  # Double DQN if True
+                 encoder: torch.nn.Module = None,
                  encoded_dim: int = 64,
+                 double: bool = False,  # Double DQN if True
                  optim: str = 'torch.optim.RMSprop',
                  lr: float = 1e-4,
                  grad_clip: float = 1,
@@ -46,9 +47,13 @@ class DQNModel(TorchModel):
                  discrete: bool = True,
                  flatten: bool = False,
                  reorder: bool = False,
+                 recurrent: bool = False,
                  **kwargs):
         super().__init__(observation_shape, action_shape, **kwargs)
-
+        if hasattr(encoder, 'output_shape'):
+            encoded_dim = encoder.output_shape
+        self.encoded_dim = encoded_dim
+        self.recurrent = recurrent
         self.is_save = kwargs.get('is_save', False)
         self.discrete = discrete
         self.double = double
@@ -75,9 +80,18 @@ class DQNModel(TorchModel):
                              deterministic=True,
                              reorder=reorder,
                              flatten=flatten,
-                             head_depth=2,
+                             head_depth=1,
                              **kwargs)
         self.init_params(self.q)
+
+    def forward(self, obs: torch.Tensor, **kwargs) -> np.ndarray:
+        # TODO: Currently not using func; remove later
+        obs = obs.to(self.device)
+        value_dist = self.q(obs, **kwargs)
+        if self.recurrent:
+            value_dist = value_dist[0]
+
+        return value_dist
 
     def act(self, obs: np.array) -> np.ndarray:
         value_dist, hidden = self._infer_from_numpy(self.q, obs)
@@ -93,27 +107,23 @@ class DQNModel(TorchModel):
 
     def val(self, obs: np.ndarray, act: np.ndarray) -> np.ndarray:
         # TODO: Currently not using func; remove later
-        obs = torch.from_numpy(obs).float().to(self.device)
-        act = torch.from_numpy(act).float().to(self.device)
-        values = torch.sum((self.q(obs).mean * act), dim=-1, keepdim=True)
+        value_dist, hidden = self._infer_from_numpy(self.q, obs)
+        values = value_dist.mean
         values = values.detach().cpu().numpy()
+        values = (values * act).sum(axis=-1, keepdims=True)
+
+        info = {}
+        if self.recurrent:
+            info['hidden'] = hidden
 
         return values
-
-    def forward(self, obs: torch.Tensor, **kwargs) -> np.ndarray:
-        # TODO: Currently not using func; remove later
-        obs = obs.to(self.device)
-        value_dist = self.q(obs, **kwargs)
-        if self.recurrent:
-            value_dist = value_dist[0]
-
-        return value_dist
 
     def update_trg(self):
         self.q.update_trg(alpha=self.polyak)
 
     def save(self, save_dir):
-        torch.save(self.state_dict(), os.path.join(save_dir, 'DQNModel.pt'))
+        torch.save(self.state_dict(),
+                   os.path.join(save_dir, type(self).__name__ + '.pt'))
         print(f'model saved in {save_dir}')
 
     def load(self, load_dir):
@@ -192,8 +202,12 @@ class DQNAgent(Agent):
         return action
 
     def step(self, s, a, r, d, s_):
+        self.curr_step += 1
         self.collect(s, a, r, d, s_)
         self.done = d
+
+        if self.model.recurrent:
+            self.model._update_hidden(d, self.hidden)
 
         info = {'Values/EPS': self.eps(self.curr_step)}
 
@@ -212,8 +226,6 @@ class DQNAgent(Agent):
             batch = self.buffer.sample(self.batch_size)
             loss = self.loss_func(batch, self.model, gamma=self.gamma)
             self.model.q.step(loss)
-        # FIXME: bug; Remaining buffer obs
-        self.model._clean()
 
         info = {
             'Loss/Q_network': loss.item(),
@@ -222,7 +234,6 @@ class DQNAgent(Agent):
         return info
 
     def collect(self, s, a, r, d, s_):
-        self.curr_step += 1
         if self.model.discrete:
             a = np.eye(self.model.action_shape[0])[a]
         self.buffer.push(s, a, r, d, s_)

@@ -87,7 +87,7 @@ class RolloutWorker:
 
         self.num_steps += self.n_env
         self.episode_score = self.episode_score + np.array(rew)
-        self.ep_steps = self.ep_steps + np.ones(shape=done.shape)
+        self.ep_steps = self.ep_steps + np.ones_like(done, np.int)
         done = np.asarray(done)
         if done.size > 1:
             self.num_episodes += sum(done)
@@ -183,16 +183,16 @@ class EpisodicWorker(RolloutWorker):
 
     def __init__(self, env, n_env, agent,
                  max_episodes: int = 10,
-                 log_interval: int = 1000,
+                 log_interval: int = 1,
                  logger=None,
                  **kwargs):
         super().__init__(env, n_env, agent, **kwargs)
         self.max_episodes = int(max_episodes)
         self.log_interval = int(log_interval)
         self.logger = logger
+        self.info = {}
         self.store_image = False
         self.start_log_image = False
-
 
     def run(self):
         while self.num_episodes < self.max_episodes:
@@ -202,16 +202,16 @@ class EpisodicWorker(RolloutWorker):
             if self.render and self.start_log_image:
                 self.logger.store_rgb(info['image'])
 
-            log_cond = done if type(done) == bool else any(done)
+            log_cond = done if np.asarray(done).size == 1 else any(done)
             if log_cond:
+                if self.start_log_image:
+                    print('save video')
+                    self.logger.video_summary(tag='playback',
+                                              step=self.num_steps)
+                    self.start_log_image = False
                 if (prev_num_ep // self.render_interval !=
                    self.num_episodes // self.render_interval) and self.render:
-                    if self.start_log_image:
-                        self.logger.video_summary(tag='playback',
-                                                  step=self.num_steps)
-                        self.start_log_image = False
-                    else:
-                        self.start_log_image = True
+                    self.start_log_image = True
                 info_r = {
                     'Counts/num_steps': self.num_steps,
                     'Counts/num_episodes': self.num_episodes,
@@ -225,4 +225,3 @@ class EpisodicWorker(RolloutWorker):
                 if (prev_num_ep // self.log_interval
                    != self.num_episodes // self.log_interval):
                     self.logger.scalar_summary(info, self.num_steps)
-                break
