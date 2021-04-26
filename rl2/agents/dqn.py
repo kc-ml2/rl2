@@ -1,4 +1,5 @@
 import os
+import copy
 import numpy as np
 import torch
 import torch.nn.functional as F
@@ -9,21 +10,28 @@ from rl2.models.torch.base import BranchModel, TorchModel
 from rl2.agents.utils import LinearDecay
 
 
-def loss_func(data, model, **kwargs):
+def loss_func(data, model, hidden=None, **kwargs):
     s, a, r, d, s_ = tuple(
         map(lambda x: torch.from_numpy(x).float().to(model.device), data)
     )
+    done_mask = copy.deepcopy(d)
+    if model.recurrent:
+        done_mask[:, 0] = 1
+    done_mask_ = d
     with torch.no_grad():
-        if model.double:
-            a_ = torch.argmax(model.q(s_).mean, dim=-1, keepdim=True)
-            v_trg = torch.gather(model.q.forward_trg(s_).mean,
-                                 dim=-1, index=a_)
+        if model.recurrent:
+            q_next_trg = model.q.forward_trg(s_, mask=done_mask_)[0].mean
         else:
-            v_trg = torch.max(model.q.forward_trg(s_).mean,
-                              dim=-1, keepdim=True).values
-        bellman_trg = r + kwargs['gamma'] * v_trg * (1-d)
+            q_next_trg = model.q.forward_trg(s_, mask=done_mask_).mean
+        if model.double:
+            q_next = model(s_, mask=done_mask).mean
+            a_ = torch.argmax(q_next, dim=-1, keepdim=True)
+            v_trg = torch.gather(q_next_trg, dim=-1, index=a_)
+        else:
+            v_trg = torch.max(q_next_trg, dim=-1, keepdim=True).values
+        bellman_trg = r + kwargs['gamma'] * v_trg * (1 - d.reshape(-1, 1))
 
-    q = torch.sum((model.q(s).mean * a), dim=-1, keepdim=True)
+    q = torch.sum((model(s, mask=done_mask).mean * a), dim=-1, keepdim=True)
     loss = F.smooth_l1_loss(q, bellman_trg)
 
     return loss
@@ -40,7 +48,7 @@ class DQNModel(TorchModel):
                  encoder: torch.nn.Module = None,
                  encoded_dim: int = 64,
                  double: bool = False,  # Double DQN if True
-                 optim: str = 'torch.optim.RMSprop',
+                 optimizer: str = 'torch.optim.RMSprop',
                  lr: float = 1e-4,
                  grad_clip: float = 1,
                  polyak: float = float(0),
@@ -63,7 +71,7 @@ class DQNModel(TorchModel):
         self.polyak = polyak
 
         # Set default RMSprop optim_args
-        if optim == 'torch.optim.RMSprop':
+        if optimizer == 'torch.optim.RMSprop':
             kwargs.setdefault('optim_args', {'alpha': 0.95,
                                              'eps': 0.00001,
                                              'momentum': 0.0,
@@ -72,12 +80,13 @@ class DQNModel(TorchModel):
         self.q = BranchModel(observation_shape,
                              action_shape,
                              encoded_dim=encoded_dim,
-                             optimizer=optim,
+                             optimizer=optimizer,
                              lr=lr,
                              grad_clip=grad_clip,
                              make_target=True,
                              discrete=discrete,
                              deterministic=True,
+                             recurrent=recurrent,
                              reorder=reorder,
                              flatten=flatten,
                              head_depth=1,
@@ -178,7 +187,7 @@ class DQNAgent(Agent):
         self.batch_size = batch_size
         self.explore = explore
         self.gamma = gamma
-        self.eps = LinearDecay(start=1, end=eps, decay_step=decay_step)
+        self.eps = LinearDecay(start=0.9, end=eps, decay_step=decay_step)
         if isinstance(eps, LinearDecay):
             self.eps = eps
 
@@ -223,7 +232,11 @@ class DQNAgent(Agent):
 
     def train(self):
         for _ in range(self.num_epochs):
-            batch = self.buffer.sample(self.batch_size)
+            if self.model.recurrent:
+                contiguous = 8
+            else:
+                contiguous = 1
+            batch = self.buffer.sample(self.batch_size, contiguous=contiguous)
             loss = self.loss_func(batch, self.model, gamma=self.gamma)
             self.model.q.step(loss)
 

@@ -135,14 +135,15 @@ class TorchModel(nn.Module):
             len(done_idx), self.encoded_dim).to(self.device)
         self.hidden = (hidden, cell)
 
-    def _infer_from_numpy(self, net, obs):
+    def _infer_from_numpy(self, net, obs, *args):
         obs = torch.from_numpy(obs).float().to(self.device)
+        args = [torch.from_numpy(a).float().ro(self.device) for a in args]
         hidden = None
         with torch.no_grad():
             if self.recurrent:
-                dist, hidden = net(obs.unsqueeze(0), hidden=self.hidden)
+                dist, hidden = net(obs.unsqueeze(0), *args, hidden=self.hidden)
             else:
-                dist = net(obs)
+                dist = net(obs, *args)
 
         return dist, hidden
 
@@ -302,10 +303,10 @@ class BranchModel(TorchModel):
         dims = [encoded_dim, output_dim]
         if discrete:
             if deterministic:
-                distribution = 'GumbelSoftmax'
+                # distribution = 'GumbelSoftmax'
                 # Change for dqn default head
                 # remove GumbelSoftmax if DPG cant handle discrete action_space
-                # distribution = 'Scalar'
+                distribution = 'Scalar'
             else:
                 distribution = 'Categorical'
         else:

@@ -2,7 +2,6 @@ import os
 import numpy as np
 from pathlib import Path
 from collections import deque
-from collections.abc import Iterable
 from rl2.agents.base import Agent
 
 
@@ -65,6 +64,8 @@ class RolloutWorker:
 
     def rollout(self):
         ac = self.agent.act(self.obs)
+        if len(ac.shape) == 2 and ac.shape[0] == 1:
+            ac = ac.squeeze(0)
         obs, rew, done, info = self.env.step(ac)
         if self.training:
             info_a = self.agent.step(self.obs, ac, rew, done, obs)
@@ -82,9 +83,6 @@ class RolloutWorker:
             #     results = {
             #         bound_method.__name__: bound_method()
             #         for bound_method in task_list}
-        if self.render and self.start_log_image:
-            info['image'] = self.env.render(self.render_mode)
-
         self.num_steps += self.n_env
         self.episode_score = self.episode_score + np.array(rew)
         self.ep_steps = self.ep_steps + np.ones_like(done, np.int)
@@ -102,6 +100,8 @@ class RolloutWorker:
                 obs = self.env.reset()
                 self.scores.append(self.episode_score)
                 self.episode_score = 0.
+                self.ep_length.append(self.ep_steps)
+                self.ep_steps = 0
         self.obs = obs
         results = None
 
@@ -130,13 +130,22 @@ class MaxStepWorker(RolloutWorker):
             done, info, results = self.rollout()
 
             # Save rendered image as gif
-            if (self.num_steps % self.render_interval < self.n_env
-               and self.render):
-                self.time_to_log_image = True
-
             if self.render:
+                if self.num_steps % self.render_interval < self.n_env:
+                    self.time_to_log_image = True
+
+                cond = done if np.asarray(done).size == 1 else done[0]
+                if cond:
+                    if self.time_to_log_image:
+                        self.time_to_log_image = False
+                        self.start_log_image = True
+                    elif self.start_log_image:
+                        self.start_log_image = False
+                        self.store_image = True
+
                 if self.start_log_image:
-                    self.logger.store_rgb(info['image'])
+                    image = self.env.render(self.render_mode)
+                    self.logger.store_rgb(image)
                 elif self.store_image:
                     self.logger.video_summary(tag='playback',
                                               step=self.num_steps)
@@ -151,9 +160,7 @@ class MaxStepWorker(RolloutWorker):
                     'Episodic/ep_length': np.mean(list(self.ep_length))
                 }
                 self.info.update(info_r)
-                if 'image' in info.keys():
-                    info.pop('image')
-                self.info.update(info)
+                # self.info.update(info)
                 self.logger.scalar_summary(self.info, self.num_steps)
 
             # Save model
@@ -164,15 +171,6 @@ class MaxStepWorker(RolloutWorker):
                 else:
                     save_dir = os.getcwd()
                 self.save(save_dir)
-
-            cond = done if np.asarray(done).size == 1 else done[0]
-            if cond:
-                if self.time_to_log_image:
-                    self.time_to_log_image = False
-                    self.start_log_image = True
-                elif self.start_log_image:
-                    self.start_log_image = False
-                    self.store_image = True
 
 
 class EpisodicWorker(RolloutWorker):
@@ -200,7 +198,8 @@ class EpisodicWorker(RolloutWorker):
             done, info, results = self.rollout()
 
             if self.render and self.start_log_image:
-                self.logger.store_rgb(info['image'])
+                image = self.env.render(self.render_mode)
+                self.logger.store_rgb(image)
 
             log_cond = done if np.asarray(done).size == 1 else any(done)
             if log_cond:
@@ -209,9 +208,10 @@ class EpisodicWorker(RolloutWorker):
                     self.logger.video_summary(tag='playback',
                                               step=self.num_steps)
                     self.start_log_image = False
-                if (prev_num_ep // self.render_interval !=
-                   self.num_episodes // self.render_interval) and self.render:
-                    self.start_log_image = True
+                if self.render:
+                    if (prev_num_ep // self.render_interval !=
+                       self.num_episodes // self.render_interval):
+                        self.start_log_image = True
                 info_r = {
                     'Counts/num_steps': self.num_steps,
                     'Counts/num_episodes': self.num_episodes,
@@ -219,9 +219,7 @@ class EpisodicWorker(RolloutWorker):
                     'Episodic/ep_length': np.mean(list(self.ep_length))
                 }
                 self.info.update(info_r)
-                if 'image' in info.keys():
-                    info.pop('image')
-                self.info.update(info)
+                # self.info.update(info)
                 if (prev_num_ep // self.log_interval
                    != self.num_episodes // self.log_interval):
-                    self.logger.scalar_summary(info, self.num_steps)
+                    self.logger.scalar_summary(self.info, self.num_steps)

@@ -103,7 +103,7 @@ class ReplayBuffer:
         if idx is None:
             if contiguous > 1:
                 num_traj = num // contiguous
-                traj_idx = np.random.randint(self.curr_size - num_traj,
+                traj_idx = np.random.randint(self.curr_size - contiguous,
                                              size=num_traj)
                 sample_idx = (traj_idx.reshape(-1, 1)
                               + np.arange(contiguous).reshape(1, -1))
@@ -154,8 +154,18 @@ class ExperienceReplay(ReplayBuffer):
                                      idx=idx,
                                      return_idx=return_idx,
                                      contiguous=contiguous)
-        output = [transitions.state, transitions.action, transitions.reward,
-                  transitions.done, transitions.state_]
+        if contiguous > 1:
+            state = transitions.state.reshape(
+                contiguous, -1, *transitions.state.shape[1:])
+            state_ = transitions.state_.reshape(
+                contiguous, -1, *transitions.state_.shape[1:])
+            done = transitions.done.reshape(
+                contiguous, -1)
+        else:
+            state = transitions.state
+            state_ = transitions.state_
+            done = transitions.done
+        output = [state, transitions.action, transitions.reward, done, state_]
         if return_idx:
             output.append(transitions.idx)
 
