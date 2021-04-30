@@ -135,110 +135,17 @@ class TorchModel(nn.Module):
             len(done_idx), self.encoded_dim).to(self.device)
         self.hidden = (hidden, cell)
 
-    def _infer_from_numpy(self, net, obs):
+    def _infer_from_numpy(self, net, obs, *args):
         obs = torch.from_numpy(obs).float().to(self.device)
+        args = [torch.from_numpy(a).float().ro(self.device) for a in args]
         hidden = None
         with torch.no_grad():
             if self.recurrent:
-                dist, hidden = net(obs.unsqueeze(0), hidden=self.hidden)
+                dist, hidden = net(obs.unsqueeze(0), *args, hidden=self.hidden)
             else:
-                dist = net(obs)
+                dist = net(obs, *args)
 
         return dist, hidden
-
-
-class PolicyBasedModel(TorchModel):
-    """
-    interface for PG models.
-    must implement abstractmethods to inherit this class.
-    but this class can be used as vanila policy gradient, also.
-    """
-
-    def __init__(self, observation_shape, action_shape, **kwargs):
-        device = kwargs.get('device')
-        super().__init__(observation_shape, action_shape,
-                         device=device)
-
-    @abstractmethod
-    def forward(self, state):
-        """
-        TODO: implement vanila pg learning
-        """
-        pass
-
-    @abstractmethod
-    def step(self, loss):
-        """
-        TODO:
-        implement vanila pg step
-        """
-        pass
-
-    @abstractmethod
-    def save(self):
-        """
-        TODO:
-        implement vanila pg save
-        """
-        pass
-
-    @abstractmethod
-    def load(self):
-        """
-        implement vanila pg load
-        """
-        pass
-
-
-class ValueBasedModel(TorchModel):
-    """
-    interface for Q learning models.
-    Q learning models always have addtional target network
-
-    must implement abstractmethods to inherit this class.
-    but this class can be used as vanila Q learning, also.
-    """
-
-    def __init__(self, observation_shape, action_shape, **kwargs):
-        device = kwargs.get('device')
-        super().__init__(observation_shape, action_shape,
-                         device)
-
-        self.q_network = None
-        self.target_network = None
-
-    def update_trg(self, alpha=0.0):
-        self.polyak_update(self.q_network, self.target_network, alpha)
-
-    @abstractmethod
-    def forward(self, state):
-        """
-        TODO: implement vanila q learning
-        """
-        pass
-
-    @abstractmethod
-    def step(self, loss):
-        """
-        TODO: implement vanila q learning
-        """
-
-        pass
-
-    @abstractmethod
-    def save(self):
-        """
-        TODO: implement vanila q learning
-        """
-
-        pass
-
-    @abstractmethod
-    def load(self):
-        """
-        TODO: implement vanila q learning
-        """
-        pass
 
 
 class BaseEncoder(nn.Module):
@@ -396,10 +303,10 @@ class BranchModel(TorchModel):
         dims = [encoded_dim, output_dim]
         if discrete:
             if deterministic:
-                distribution = 'GumbelSoftmax'
+                # distribution = 'GumbelSoftmax'
                 # Change for dqn default head
                 # remove GumbelSoftmax if DPG cant handle discrete action_space
-                # distribution = 'Scalar'
+                distribution = 'Scalar'
             else:
                 distribution = 'Categorical'
         else:

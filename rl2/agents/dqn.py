@@ -1,57 +1,67 @@
 import os
+import copy
 import numpy as np
 import torch
 import torch.nn.functional as F
 from typing import Callable, Type
 from rl2.agents.base import Agent
 from rl2.buffers.base import ExperienceReplay, ReplayBuffer
-from rl2.models.torch.base import BranchModel, ValueBasedModel
+from rl2.models.torch.base import BranchModel, TorchModel
 from rl2.agents.utils import LinearDecay
 
 
-def loss_func(data, model, **kwargs):
+def loss_func(data, model, hidden=None, **kwargs):
     s, a, r, d, s_ = tuple(
         map(lambda x: torch.from_numpy(x).float().to(model.device), data)
     )
+    done_mask = copy.deepcopy(d)
+    if model.recurrent:
+        done_mask[:, 0] = 1
+    done_mask_ = d
     with torch.no_grad():
-        if model.double:
-            a_ = torch.argmax(model.q(s_).mean, dim=-1, keepdim=True)
-            v_trg = torch.gather(model.q.forward_trg(s_).mean,
-                                 dim=-1, index=a_)
+        if model.recurrent:
+            q_next_trg = model.q.forward_trg(s_, mask=done_mask_)[0].mean
         else:
-            v_trg = torch.max(model.q.forward_trg(s_).mean,
-                              dim=-1, keepdim=True).values
-        bellman_trg = r + kwargs['gamma'] * v_trg * (1-d)
+            q_next_trg = model.q.forward_trg(s_, mask=done_mask_).mean
+        if model.double:
+            q_next = model(s_, mask=done_mask).mean
+            a_ = torch.argmax(q_next, dim=-1, keepdim=True)
+            v_trg = torch.gather(q_next_trg, dim=-1, index=a_)
+        else:
+            v_trg = torch.max(q_next_trg, dim=-1, keepdim=True).values
+        bellman_trg = r + kwargs['gamma'] * v_trg * (1 - d.reshape(-1, 1))
 
-    q = torch.sum((model.q(s).mean * a), dim=-1, keepdim=True)
+    q = torch.sum((model(s, mask=done_mask).mean * a), dim=-1, keepdim=True)
     loss = F.smooth_l1_loss(q, bellman_trg)
 
     return loss
 
 
-class DQNModel(ValueBasedModel):
+class DQNModel(TorchModel):
     """
     predefined model
     (same one as original paper)
     """
-
     def __init__(self,
                  observation_shape,
                  action_shape,
-                 double: bool = False,  # Double DQN if True
-                 q_network: torch.nn.Module = None,
                  encoder: torch.nn.Module = None,
                  encoded_dim: int = 64,
-                 optim: str = 'torch.optim.RMSprop',
+                 double: bool = False,  # Double DQN if True
+                 optimizer: str = 'torch.optim.RMSprop',
                  lr: float = 1e-4,
                  grad_clip: float = 1,
                  polyak: float = float(0),
                  discrete: bool = True,
                  flatten: bool = False,
                  reorder: bool = False,
+                 recurrent: bool = False,
                  **kwargs):
         super().__init__(observation_shape, action_shape, **kwargs)
-
+        if hasattr(encoder, 'output_shape'):
+            encoded_dim = encoder.output_shape
+        self.encoded_dim = encoded_dim
+        self.recurrent = recurrent
         self.is_save = kwargs.get('is_save', False)
         self.discrete = discrete
         self.double = double
@@ -61,7 +71,7 @@ class DQNModel(ValueBasedModel):
         self.polyak = polyak
 
         # Set default RMSprop optim_args
-        if optim == 'torch.optim.RMSprop':
+        if optimizer == 'torch.optim.RMSprop':
             kwargs.setdefault('optim_args', {'alpha': 0.95,
                                              'eps': 0.00001,
                                              'momentum': 0.0,
@@ -70,56 +80,59 @@ class DQNModel(ValueBasedModel):
         self.q = BranchModel(observation_shape,
                              action_shape,
                              encoded_dim=encoded_dim,
-                             optimizer=optim,
+                             optimizer=optimizer,
                              lr=lr,
                              grad_clip=grad_clip,
                              make_target=True,
                              discrete=discrete,
                              deterministic=True,
+                             recurrent=recurrent,
                              reorder=reorder,
                              flatten=flatten,
-                             head_depth=2,
+                             head_depth=1,
                              **kwargs)
         self.init_params(self.q)
 
-    def _clean(self):
-        for mod in self.children():
-            if isinstance(mod, BranchModel):
-                mod.reset_encoder_memory()
+    def forward(self, obs: torch.Tensor, **kwargs) -> np.ndarray:
+        # TODO: Currently not using func; remove later
+        obs = obs.to(self.device)
+        value_dist = self.q(obs, **kwargs)
+        if self.recurrent:
+            value_dist = value_dist[0]
+
+        return value_dist
 
     def act(self, obs: np.array) -> np.ndarray:
-        obs = torch.from_numpy(obs).float().to(self.device)
-        values = self.q(obs).mean
+        value_dist, hidden = self._infer_from_numpy(self.q, obs)
+        values = value_dist.mean
         action = torch.argmax(values)
         action = action.detach().cpu().numpy()
-        self._clean()
 
-        return action
+        info = {}
+        if self.recurrent:
+            info['hidden'] = hidden
+
+        return action, info
 
     def val(self, obs: np.ndarray, act: np.ndarray) -> np.ndarray:
         # TODO: Currently not using func; remove later
-        obs = torch.from_numpy(obs).float().to(self.device)
-        act = torch.from_numpy(act).float().to(self.device)
-        values = torch.sum((self.q(obs) * act), dim=-1, keepdim=True)
+        value_dist, hidden = self._infer_from_numpy(self.q, obs)
+        values = value_dist.mean
         values = values.detach().cpu().numpy()
-        self._clean()
+        values = (values * act).sum(axis=-1, keepdims=True)
+
+        info = {}
+        if self.recurrent:
+            info['hidden'] = hidden
 
         return values
-
-    def forward(self, obs: np.ndarray) -> np.ndarray:
-        # TODO: Currently not using func; remove later
-        obs = torch.from_numpy(obs).float().to(self.device)
-        action = self.act(obs)
-        value = self.val(obs, action)
-        self._clean()
-
-        return action, value
 
     def update_trg(self):
         self.q.update_trg(alpha=self.polyak)
 
     def save(self, save_dir):
-        torch.save(self.state_dict(), os.path.join(save_dir, 'DQNModel.pt'))
+        torch.save(self.state_dict(),
+                   os.path.join(save_dir, type(self).__name__ + '.pt'))
         print(f'model saved in {save_dir}')
 
     def load(self, load_dir):
@@ -174,26 +187,37 @@ class DQNAgent(Agent):
         self.batch_size = batch_size
         self.explore = explore
         self.gamma = gamma
-        self.eps = LinearDecay(start=1, end=eps, decay_step=decay_step)
+        self.eps = LinearDecay(start=0.9, end=eps, decay_step=decay_step)
         if isinstance(eps, LinearDecay):
             self.eps = eps
 
         # Set loss function
         self.loss_func = loss_func
 
-    def act(self, obs: np.ndarray) -> np.ndarray:
-        if len(obs.shape) in (1, 3):
-            obs = np.expand_dims(obs, axis=0)
+        # For recurrent intermediate representation
+        self.done = False
+        self.model._init_hidden(self.done)
+        self.hidden = self.model.hidden
+        self.pre_hidden = self.hidden
 
+    def act(self, obs: np.ndarray) -> np.ndarray:
+        action, info = self.model.act(obs)
         if self.explore and np.random.random() < self.eps(self.curr_step):
             action = np.random.randint(self.model.action_shape[0], size=())
-        else:
-            action = self.model.act(obs)
+
+        if self.model.recurrent:
+            self.hidden = info['hidden']
 
         return action
 
     def step(self, s, a, r, d, s_):
+        self.curr_step += 1
         self.collect(s, a, r, d, s_)
+        self.done = d
+
+        if self.model.recurrent:
+            self.model._update_hidden(d, self.hidden)
+
         info = {'Values/EPS': self.eps(self.curr_step)}
 
         if (self.curr_step % self.train_interval == 0 and
@@ -208,11 +232,13 @@ class DQNAgent(Agent):
 
     def train(self):
         for _ in range(self.num_epochs):
-            batch = self.buffer.sample(self.batch_size)
+            if self.model.recurrent:
+                contiguous = 8
+            else:
+                contiguous = 1
+            batch = self.buffer.sample(self.batch_size, contiguous=contiguous)
             loss = self.loss_func(batch, self.model, gamma=self.gamma)
             self.model.q.step(loss)
-        # FIXME: bug; Remaining buffer obs
-        self.model._clean()
 
         info = {
             'Loss/Q_network': loss.item(),
@@ -221,7 +247,6 @@ class DQNAgent(Agent):
         return info
 
     def collect(self, s, a, r, d, s_):
-        self.curr_step += 1
         if self.model.discrete:
             a = np.eye(self.model.action_shape[0])[a]
         self.buffer.push(s, a, r, d, s_)

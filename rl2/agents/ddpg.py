@@ -92,9 +92,14 @@ class DDPGModel(TorchModel):
                  discrete: bool = False,
                  flatten: bool = False,
                  reorder: bool = False,
+                 recurrent: bool = False,
                  **kwargs):
 
         super().__init__(observation_shape, action_shape, **kwargs)
+        if hasattr(encoder, 'output_shape'):
+            encoded_dim = encoder.output_shape
+        self.encoded_dim = encoded_dim
+        self.recurrent = recurrent
 
         if optim_ac is None:
             optim_ac = self.optim_ac
@@ -111,78 +116,89 @@ class DDPGModel(TorchModel):
 
         self.mu = BranchModel(observation_shape, action_shape,
                               encoded_dim=encoded_dim,
+                              optimizer=optim_ac,
+                              lr=lr_ac,
+                              grad_clip=grad_clip,
+                              make_target=True,
                               discrete=discrete,
                               deterministic=True,
-                              make_target=True,
-                              flatten=flatten,
+                              recurrent=recurrent,
                               reorder=reorder,
+                              flatten=flatten,
                               default=False,
                               head_depth=2,
                               **kwargs)
 
         self.q = InjectiveBranchModel(observation_shape, (1,), action_shape,
                                       encoded_dim=encoded_dim,
+                                      optimizer=optim_cr,
+                                      lr=lr_cr,
+                                      grad_clip=grad_clip,
+                                      make_target=True,
                                       discrete=False,
                                       deterministic=True,
-                                      make_target=True,
-                                      flatten=flatten,
+                                      recurrent=recurrent,
                                       reorder=reorder,
+                                      flatten=flatten,
                                       default=False,
                                       head_depth=2,
                                       **kwargs)
         self.init_params(self.mu)
         self.init_params(self.q)
 
+    @TorchModel.sharedbranch
+    def forward(self, obs, **kwargs) -> Distribution:
+        obs = obs.to(self.device)
+        state_ac = self.enc_ac(obs)
+        state_cr = self.enc_cr(obs)
+        action_dist = self.mu(state_ac, **kwargs)
+        if self.recurrent:
+            action_dist = action_dist[0]
+        value_dist = self.q(state_cr, action_dist.mean, **kwargs)
+        if self.recurrent:
+            value_dist = value_dist[0]
+
+        return action_dist, value_dist
+
     def act(self, obs: np.array) -> np.ndarray:
-        obs = torch.from_numpy(obs).float().to(self.device)
-        action = self.mu(obs).mean
+        action_dist, hidden = self._infer_from_numpy(self.mu, obs)
+        action = action_dist.mean
         if not self.discrete:
             action = torch.tanh(action)
         action = action.detach().cpu().numpy()
 
-        self._clean()
-        return action
+        info = {}
+        if self.recurrent:
+            info['hidden'] = hidden
+
+        return action, info
 
     def val(self, obs: np.ndarray, act: np.ndarray) -> np.ndarray:
         # TODO: Currently not using func; remove later
-        obs = torch.form_numpy(obs).float().to(self.device)
-        act = torch.from_numpy(obs).float().to(self.device)
-        value = self.q(obs, act).mean
+        value_dist, hidden = self._infer_from_numpy(self.q, obs, act)
+        value = value_dist.mean
         value = value.detach().cpu().numpy()
 
-        self._clean()
+        info = {}
+        if self.recurrent:
+            info['hidden'] = hidden
+
         return value
-
-    def _clean(self):
-        for mod in self.children():
-            if isinstance(mod, BranchModel):
-                mod.reset_encoder_memory()
-
-    @TorchModel.sharedbranch
-    def forward(self, obs) -> Distribution:
-        obs = obs.to(self.device)
-        state_ac = self.enc_ac(obs)
-        state_cr = self.enc_cr(obs)
-        action = self.mu(state_ac)
-        value = self.q(state_cr, action)
-
-        self._clean()
-        return action, value
 
     def update_trg(self):
         self.mu.update_trg(alpha=self.polyak)
         self.q.update_trg(alpha=self.polyak)
 
     def save(self, save_dir):
-        torch.save(self.enc_ac.state_dict(),
-                   os.path.join(save_dir, 'enc_ac.pt'))
-        torch.save(self.enc_cr.state_dict(),
-                   os.path.join(save_dir, 'enc_ac.pt'))
+        # torch.save(self.enc_ac.state_dict(),
+        #            os.path.join(save_dir, 'enc_ac.pt'))
+        # torch.save(self.enc_cr.state_dict(),
+        #            os.path.join(save_dir, 'enc_ac.pt'))
         torch.save(self.mu.state_dict(), os.path.join(save_dir, 'actor.pt'))
         torch.save(self.q.state_dict(), os.path.join(save_dir, 'critic.pt'))
         print(f'model saved in {save_dir}')
 
-    def load(self, load_dir):
+    def load(self, load_dir_ac, load_dir_cr):
         # TODO: load pretrained model
         # ckpt = torch.load(
         #     os.path.join(load_dir, 'enc_ac.pt'),
@@ -192,7 +208,10 @@ class DDPGModel(TorchModel):
         # self.mu.load_state_dict(ckpt)
         # self.enc_cr.load_state_dict(ckpt)
         # self.q.load_state_dict(ckpt)
-        pass
+        ckpt_ac = torch.load(load_dir_ac, map_location=self.device)
+        self.mu.load_state_dict(ckpt_ac)
+        ckpt_cr = torch.load(load_dir_cr, map_location=self.device)
+        self.q.load_state_dict(ckpt_cr)
 
 
 class DDPGAgent(Agent):
@@ -217,7 +236,6 @@ class DDPGAgent(Agent):
                  train_after: int = int(1e3),
                  update_after: int = int(1e3),
                  **kwargs):
-        self.save_interval = save_interval
         if loss_func_cr is None:
             self.loss_func_cr = loss_func_cr
         if loss_func_ac is None:
@@ -230,33 +248,43 @@ class DDPGAgent(Agent):
                              'state_shape': model.observation_shape,
                              'action_shape': model.action_shape}
 
-        super().__init__(model,
-                         update_interval,
-                         num_epochs,
-                         buffer_cls,
-                         buffer_kwargs)
+        super().__init__(model=model,
+                         train_interval=train_interval,
+                         num_epochs=num_epochs,
+                         buffer_cls=buffer_cls,
+                         buffer_kwargs=buffer_kwargs)
 
+        # Set intervals
         self.train_interval = train_interval
         self.update_interval = update_interval
+        self.save_interval = save_interval
+        self.log_interval = log_interval
+
+        # set hyperparams
+        self.train_after = train_after
+        self.update_after = update_after
         self.batch_size = batch_size
         self.eps = eps
         self.explore = explore
         self.action_low = action_low
         self.action_high = action_high
-        self.loss_func_ac = loss_func_ac
-        self.loss_func_cr = loss_func_cr
         self.gamma = gamma
-        self.log_interval = log_interval
         self.logger = kwargs.get('logger')
         if self.logger:
             self.log_dir = self.logger.log_dir
-        self.train_after = train_after
-        self.update_after = update_after
+
+        # Set loss functions
+        self.loss_func_ac = loss_func_ac
+        self.loss_func_cr = loss_func_cr
+
+        # For recurrent intermediate representation
+        self.done = False
+        self.model._init_hidden(self.done)
+        self.hidden = self.model.hidden
+        self.pre_hidden = self.hidden
 
     def act(self, obs: np.ndarray) -> np.ndarray:
-        if len(obs.shape) in (1, 3):
-            obs = np.expand_dims(obs, axis=0)
-        action = self.model.act(obs)
+        action, info = self.model.act(obs)
         if self.model.discrete:
             self.action_param = action
             # action = np.argmax(action, axis=-1)
@@ -271,9 +299,13 @@ class DDPGAgent(Agent):
                 action += self.eps * np.random.randn(*action.shape)
             action = np.clip(action, self.action_low, self.action_high)
 
+        if self.model.recurrent:
+            self.hidden = info['hidden']
+
         return action
 
     def step(self, s, a, r, d, s_):
+        self.curr_step += 1
         if self.model.discrete:
             a = self.action_param
         self.collect(s, a, r, d, s_)
@@ -311,7 +343,6 @@ class DDPGAgent(Agent):
         return info
 
     def collect(self, s, a, r, d, s_):
-        self.curr_step += 1
         # if self.model.discrete:
         #     a = np.eye(self.model.action_shape[0])[a]
         self.buffer.push(s, a, r, d, s_)

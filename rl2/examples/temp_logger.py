@@ -10,6 +10,7 @@ import numpy as np
 from datetime import datetime
 from pathlib import Path
 from subprocess import PIPE, Popen
+from PIL import Image
 
 import torch
 from torch.utils.tensorboard.summary import scalar
@@ -98,7 +99,7 @@ class Logger:
         info should be dictionary with
         key: str
         value: scalar or dictionary
-        if value is dict, it will be used as tag_scalar_dict for add_scalars 
+        if value is dict, it will be used as tag_scalar_dict for add_scalars
         function and plotted on the same graph.
         """
         assert isinstance(info, dict), "data must be a dictionary"
@@ -188,11 +189,24 @@ class Logger:
         rgb_array = np.transpose(rgb_array, (2, 0, 1))
         self.buffer.append(rgb_array)
 
-    def video_summary(self, tag, step):
+    def video_summary(self, tag, step, max_size=300):
         # _, t, h, w, c = self.buffer.shape
         vid_tensor = torch.from_numpy(np.array(self.buffer)).unsqueeze(0)
         if self.writer is not None:
             self.writer.add_video(tag, vid_tensor, step)
+        frame_buffer = []
+        for img in self.buffer:
+            bigger = max(img.shape[1:])
+            scale = max(max_size // bigger, 1)
+            rgb_array = np.transpose(img, (1, 2, 0))
+            rgb_array = np.repeat(np.repeat(rgb_array, scale, axis=0),
+                                  scale, axis=1)
+            frame_buffer.append(Image.fromarray(rgb_array, 'RGB'))
+        fp = os.path.join(self.log_dir, 'playbacks')
+        os.makedirs(fp, exist_ok=True)
+        frame_buffer[0].save(fp+'/{}.gif'.format(step), save_all=True,
+                             append_images=frame_buffer[1:-1],
+                             format='GIF')
         self.buffer = []
 
     def add_histogram(self, tag, values, step):
