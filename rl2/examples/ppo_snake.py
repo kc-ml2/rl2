@@ -106,10 +106,11 @@ if __name__ == "__main__":
         'log_interval': 20000,
         'log_level': 10,
         'save_interval': 1000000,
-        'tag': 'TUTORIAL/normal_rew',
+        'tag': 'DEBUG',
     }
+        # 'tag': 'TUTORIAL/normal_rew',
     config = EasyDict(myconfig)
 
-    # log_dir = train(config)
-    log_dir = 'runs/TUTORIAL/normal_rew/20210414161829'
-    test(config, load_dir=log_dir)
+    log_dir = train(config)
+    # log_dir = 'runs/TUTORIAL/normal_rew/20210414161829'
+    # test(config, load_dir=log_dir)

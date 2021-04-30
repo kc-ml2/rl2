@@ -80,6 +80,7 @@ class PPOModel(TorchModel):
                                   **kwargs)
 
         self.value = BranchModel(observation_shape, (1,),
+                                 encoder=self.policy.encoder,
                                  encoded_dim=encoded_dim,
                                  discrete=False,
                                  deterministic=True,
