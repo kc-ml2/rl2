@@ -270,7 +270,10 @@ class BranchModel(TorchModel):
             # User has given the encoder, validate!
             if reorder and len(observation_shape) < 2:
                 raise ValueError("Cannont reorder a input dimension < 2")
-            return BaseEncoder(encoder, encoded_dim, reorder, False, rnn)
+            if isinstance(encoder, BaseEncoder):
+                return encoder
+            else:
+                return BaseEncoder(encoder, encoded_dim, reorder, False, rnn)
         if len(observation_shape) == 3:
             if flatten:
                 return BaseEncoder(encoder, encoded_dim, False, flatten, rnn)
