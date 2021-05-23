@@ -26,6 +26,8 @@ def dqn(obs_shape, ac_shape, config, props, load_dir=None):
                      reorder=True,
                      discrete=props.discrete,
                      high=props.high)
+    if load_dir is not None:
+        model.load(load_dir)
     agent = DQNAgent(model,
                      update_interval=config.update_interval,
                      train_interval=config.train_interval,
@@ -63,7 +65,7 @@ def train(config):
                            log_interval=config.log_interval,
                            render=True,
                            render_mode='rgb_array',
-                           render_interval=10000,
+                           render_interval=100000,
                            is_save=True,
                            save_interval=config.save_interval,
                            logger=logger)
@@ -76,7 +78,7 @@ def test(config, load_dir=None):
     # Test phase
     if log_dir is not None:
         config_file = os.path.join(load_dir, "config.json")
-        model_file = os.path.join(load_dir, "ckpt", "10k.pt")
+        model_file = os.path.join(load_dir, "ckpt", "1k", "DQNModel.pt")
         with open(config_file, "r") as config_f:
             config = EasyDict(json.load(config_f))
     logger = Logger(name='TUTORIAL', args=config)
@@ -86,7 +88,7 @@ def test(config, load_dir=None):
         num_snakes=1,
         width=config.width,
         height=config.height,
-        vision_rang=config.vision_range,
+        vision_range=config.vision_range,
         frame_stack=config.frame_stack
     )
     agent = dqn(observation_shape, action_shape, config, props,
@@ -124,7 +126,7 @@ if __name__ == '__main__':
         'update_interval': int(1e4),
         'train_interval': 1,
         'log_interval': 20000,
-        'save_interval': int(1e5),
+        'save_interval': int(1e3),
         'optimizer': 'torch.optim.Adam',
         'lr': 1e-3,
         'recurrent': True,
@@ -133,11 +135,11 @@ if __name__ == '__main__':
         'polyak': 0,
         'decay_step': int(1e5),
         'grad_clip': 10,
-        'tag': 'DDQN/SNAKE/recurrent',
+        'tag': 'DDQN/SNAKE',
         'double': True,
         'log_level': 10,
     }
     config = EasyDict(myconfig)
 
     log_dir = train(config)
-    # test(config, load_dir=log_dir)
+    test(config, load_dir=log_dir)

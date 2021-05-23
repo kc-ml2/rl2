@@ -94,7 +94,6 @@ class DQNModel(TorchModel):
         self.init_params(self.q)
 
     def forward(self, obs: torch.Tensor, **kwargs) -> np.ndarray:
-        # TODO: Currently not using func; remove later
         obs = obs.to(self.device)
         value_dist = self.q(obs, **kwargs)
         if self.recurrent:
@@ -115,7 +114,6 @@ class DQNModel(TorchModel):
         return action, info
 
     def val(self, obs: np.ndarray, act: np.ndarray) -> np.ndarray:
-        # TODO: Currently not using func; remove later
         value_dist, hidden = self._infer_from_numpy(self.q, obs)
         values = value_dist.mean
         values = values.detach().cpu().numpy()

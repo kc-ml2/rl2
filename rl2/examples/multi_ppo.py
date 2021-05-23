@@ -40,7 +40,7 @@ def train(config):
         num_snakes=config.num_snakes,
         width=config.width,
         height=config.height,
-        vision_rang=config.vision_range,
+        vision_range=config.vision_range,
         frame_stack=config.frame_stack
     )
 
@@ -49,7 +49,7 @@ def train(config):
         agents.append(ppo(observation_shape, action_shape, config, props))
 
     worker = MAMaxStepWorker(env, props.n_env, agents,
-                             max_steps=int(1e7),
+                             max_steps=int(1e5),
                              training=True,
                              logger=logger,
                              log_interval=config.log_interval,
@@ -85,10 +85,10 @@ def test(config, load_dir=None):
     agents = []
     for i in range(config.num_snakes):
         if model_dir is not None:
-            # model_file = os.path.join(model_dir,
-            #                           f'agent{i}', '5000k', 'PPOModel.pt')
             model_file = os.path.join(model_dir,
-                                      '5000k', 'PPOModel.pt')
+                                      f'agent{i}', '100k', 'PPOModel.pt')
+            # model_file = os.path.join(model_dir,
+            #                           '100k', 'PPOModel.pt')
         else:
             model_file = None
         agents.append(
@@ -117,14 +117,14 @@ if __name__ == "__main__":
         'train_interval': 128,
         'log_level': 10,
         'log_interval': 50000,
-        'save_interval': 1000000,
+        'save_interval': 100000,
         'lr': 1e-4,
         'gamma': 0.99,
         'grad_clip': 10,
-        'tag': 'TUTORIAL/MAPPO_load',
+        'tag': 'DEBUG',
     }
     config = EasyDict(myconfig)
 
-    # log_dir = train(config)
-    log_dir = 'runs/TUTORIAL/normal_rew/20210414161829'
+    log_dir = train(config)
+    # log_dir = 'runs/DEBUG/20210505180137'
     test(config, load_dir=log_dir)

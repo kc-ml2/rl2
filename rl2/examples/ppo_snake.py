@@ -93,8 +93,8 @@ if __name__ == "__main__":
     myconfig = {
         'n_env': 64,
         'num_snakes': 1,
-        'width': 20,
-        'height': 20,
+        'width': 7,
+        'height': 7,
         'vision_range': 5,
         'frame_stack': 2,
         'train_interval': 128,
@@ -111,6 +111,6 @@ if __name__ == "__main__":
         # 'tag': 'TUTORIAL/normal_rew',
     config = EasyDict(myconfig)
 
-    log_dir = train(config)
-    # log_dir = 'runs/TUTORIAL/normal_rew/20210414161829'
-    # test(config, load_dir=log_dir)
+    # log_dir = train(config)
+    log_dir = 'runs/TUTORIAL/normal_rew/20210414161829'
+    test(config, load_dir=log_dir)
