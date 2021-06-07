@@ -18,3 +18,5 @@ experiments/*/
 .idea
 .DS_Store
 runs/
+*.gif
+*.pt
