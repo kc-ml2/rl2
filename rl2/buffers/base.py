@@ -69,7 +69,11 @@ class ReplayBuffer:
             raise ValueError(f'buffer max size != {key} length, '
                              '{self.max_size} != {len(value)}')
     '''
-
+    def to_np(self):
+    # tmp
+         l = [getattr(self, key)[:self.curr_size] for key in self.keys]
+         return np.asarray(l)
+          
     def to_dict(self):
         d = {}
         for key in self.keys:

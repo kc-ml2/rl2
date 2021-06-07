@@ -135,10 +135,8 @@ class PPOModel(TorchModel):
         return value
 
     def save(self, save_dir):
-        torch.save(
-            self.state_dict(),
-            os.path.join(save_dir, type(self).__name__ + '.pt')
-        )
+        torch.save(self.state_dict(),
+                   os.path.join(save_dir, type(self).__name__ + '.pt'))
         print(f'model saved in {save_dir}')
 
     def load(self, load_dir):
@@ -169,7 +167,6 @@ class PPOAgent(Agent):
         super().__init__(model, train_interval, num_epochs,
                          buffer_cls, buffer_kwargs, **kwargs)
 
-        self.trajs = []
         # TODO: some of these can be moved to base class
         self.obs = None
         self.n_env = n_env
@@ -213,9 +210,7 @@ class PPOAgent(Agent):
 
         info = {}
         if self.curr_step % self.train_interval == 0:
-            if self.curr_step > 4000:   
-                print(f"adding expert's T...{self.curr_step}")
-                self.trajs.append(self.buffer.to_dict())
+            np.save(f'~/data/{}', self.buffer)
             value = self.model.val(s_)
             advs = general_advantage_estimation(self.buffer.to_dict(),
                                                 value, d,

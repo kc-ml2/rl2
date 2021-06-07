@@ -3,6 +3,8 @@ import numpy as np
 from pathlib import Path
 from collections import deque
 from rl2.agents.base import Agent
+import signal
+from datetime import datetime
 
 
 class RolloutWorker:
@@ -51,13 +53,27 @@ class RolloutWorker:
 
         self.obs = env.reset()
 
+    def __enter__(self):
+        signal.signal(signal.SIGINT, lambda sig, frame: self.save())
+        # TODO: [feature] try to attach ipython session
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        try:
+            self.save()
+        except Exception as e:
+            print(e)
+
+
     # def register(self, agent):
     #     self.agent.add(agent)
 
     def run(self):
         raise NotImplementedError
 
-    def save(self, save_dir):
+    def save(self, save_dir=None):
+        if save_dir is None:
+            save_dir = type(self.agent).__name__ + '_' + datetime.now().strftime('%Y%m%d%H%M%S')
         save_dir = os.path.join(save_dir, f'ckpt/{int(self.num_steps/1000)}k')
         Path(save_dir).mkdir(parents=True, exist_ok=True)
         self.agent.model.save(save_dir)

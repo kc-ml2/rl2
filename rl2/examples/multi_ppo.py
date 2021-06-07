@@ -127,4 +127,4 @@ if __name__ == "__main__":
 
     log_dir = train(config)
     # log_dir = 'runs/DEBUG/20210505180137'
-    test(config, load_dir=log_dir)
+    #test(config, load_dir=log_dir)

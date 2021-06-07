@@ -1,6 +1,7 @@
 import os
 import json
 from easydict import EasyDict
+import numpy as np
 
 from marlenv.wrappers import make_snake
 
@@ -26,6 +27,8 @@ def ppo(obs_shape, ac_shape, config, props, load_dir=None):
                      num_epochs=config.epoch,
                      buffer_kwargs={'size': config.train_interval,
                                     'n_env': props.n_env})
+    assert hasattr(agent, 'trajs')
+
     return agent
 
 
@@ -57,7 +60,11 @@ def train(config):
                            is_save=True,
                            save_interval=config.save_interval,
                            logger=logger)
-    worker.run()
+    with worker:
+        worker.run()
+    print('saving export traj...', '*'*100) 
+    print(agent.trajs)
+    np.save('expert_traj_1e6_to_2e6_by_126', agent.trajs)
     return logger.log_dir
 
 
@@ -100,7 +107,7 @@ if __name__ == "__main__":
         'train_interval': 128,
         'epoch': 4,
         'batch_size': 512,
-        'max_step': int(5e6),
+        'max_step': 600000,
         'optimizer': 'torch.optim.RMSprop',
         'recurrent': False,
         'log_interval': 20000,
@@ -111,6 +118,6 @@ if __name__ == "__main__":
         # 'tag': 'TUTORIAL/normal_rew',
     config = EasyDict(myconfig)
 
-    # log_dir = train(config)
-    log_dir = 'runs/TUTORIAL/normal_rew/20210414161829'
-    test(config, load_dir=log_dir)
+    log_dir = train(config)
+    #log_dir = 'runs/TUTORIAL/normal_rew/20210414161829'
+    #test(config, load_dir=log_dir)
