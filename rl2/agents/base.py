@@ -2,7 +2,7 @@ from typing import Union, List
 import numpy as np
 
 from rl2.models.tf.base import TFModel
-from rl2.models.torch.base import TorchModel
+from rl2.models.base import TorchModel
 
 
 class Agent:
@@ -54,16 +54,20 @@ class Agent:
         """
         raise NotImplementedError
 
-    def collect(self, s, a, r, d, s_) -> 'Maybe Some statistics?':
+    def collect(self, s, a, r, d, s_):
         """
         collects state and store in buffer
         """
         raise NotImplementedError
 
-    def train(self) -> 'Maybe Train Result?':
+    def train(self):
         """
         train it's model by calling model.step num_epochs times
         """
+        raise NotImplementedError
+
+
+    def step(self):
         raise NotImplementedError
 
 

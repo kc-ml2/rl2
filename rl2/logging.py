@@ -1,20 +1,11 @@
+import logging
 import os
 import sys
-from pathlib import Path
 from datetime import datetime
-import traceback
-import logging
+from pathlib import Path
 from subprocess import Popen, PIPE
-from termcolor import colored
-# from tensorboardX import SummaryWriter
-# from tensorboardX.summary import Summary
+
 from torch.utils.tensorboard import SummaryWriter
-from torch.utils.tensorboard.summary import
-import matplotlib.pyplot as plt
-from matplotlib.figure import Figure
-import numpy as np
-from PIL import Image
-import csv
 
 
 # Logging levels

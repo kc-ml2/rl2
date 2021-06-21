@@ -15,7 +15,6 @@ setup(
         'sklearn',
         'psutil',
         'mpi4py',
-        'easydict',
         'torch',
         'moviepy'
     ]

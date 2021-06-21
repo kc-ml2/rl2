@@ -25,18 +25,18 @@ def ppo(obs_shape, ac_shape, config, props, load_dir=None):
         model.load(load_dir)
     agent = PPOAgent(model,
                      train_interval=config.train_interval,
-                     n_env=props.n_env * config.num_snakes,
+                     n_env=props.num_envs * config.num_snakes,
                      batch_size=config.batch_size,
                      num_epochs=config.epoch,
                      buffer_kwargs={'size': config.train_interval,
-                                    'n_env': props.n_env*config.num_snakes})
+                                    'n_env': props.num_envs * config.num_snakes})
     return agent
 
 
 def train(config):
     logger = Logger(name='CPPO', args=config)
     env, observation_shape, action_shape, props = make_snake(
-        n_env=config.n_env,
+        n_env=config.num_envs,
         num_snakes=config.num_snakes,
         width=config.width,
         height=config.height,
@@ -46,7 +46,7 @@ def train(config):
 
     agent = ppo(observation_shape, action_shape, config, props)
 
-    worker = SelfMaxStepWorker(env, props.n_env, agent,
+    worker = SelfMaxStepWorker(env, props.num_envs, agent,
                                n_agents=config.num_snakes,
                                max_steps=int(1e7),
                                training=True,

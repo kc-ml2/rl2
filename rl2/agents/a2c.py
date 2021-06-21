@@ -1,5 +1,5 @@
 from rl2.agents.base import Agent
-from rl2.models.torch.base import ActorCriticModel
+from rl2.models.base import ActorCriticModel
 
 
 class A2CModel(ActorCriticModel):

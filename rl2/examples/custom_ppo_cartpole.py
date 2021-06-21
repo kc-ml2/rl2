@@ -4,7 +4,7 @@ import torch
 from torch import nn
 
 from rl2.agents.ppo import PPOAgent
-from rl2.models.torch.actor_critic import ActorCriticModel
+from rl2.models.actor_critic import ActorCriticModel
 from rl2.workers.base import MaxStepWorker
 
 """

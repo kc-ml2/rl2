@@ -6,14 +6,14 @@ import itertools
 import copy
 
 import numpy as np
+
 import torch
 from torch import nn
 from torch.optim import Optimizer
 import torch.nn.functional as F
 
-from rl2.networks.torch import MLP, ConvEnc, LSTM
-import rl2.distributions.torch as dist
-
+from rl2.networks.core import MLP, ConvEnc, LSTM
+import rl2.distributions as dist
 """
 interface that can handle most of the recent algorithms. (PG, Qlearning)
 but interface itself can serve as vanilla algorithm
@@ -24,7 +24,6 @@ class TorchModel(nn.Module):
     """
     input : state
     output : infered torch tensor or tuple of tensors if multiple.
-
     this class encapsulates all neural net models
     + other models(e.g. decision tree) of an algorithm
     inherits nn.Module to utilize its functionalities, e.g. model.state_dict()
@@ -80,7 +79,7 @@ class TorchModel(nn.Module):
     @staticmethod
     def polyak_update(source, target, tau=0.95):
         for p, p_t in zip(source.parameters(), target.parameters()):
-            p_t.data.copy_((1-tau) * p.data + tau * p_t.data)
+            p_t.data.copy_((1 - tau) * p.data + tau * p_t.data)
 
     @staticmethod
     def get_optimizer_by_name(modules: Iterable, optim_name: str,
@@ -342,8 +341,7 @@ class BranchModel(TorchModel):
     def _handle_obs_shape(self, observation):
         if len(observation.shape) == len(self.observation_shape):
             observation = observation.unsqueeze(0)
-        if (self.recurrent
-           and len(observation.shape) == len(self.observation_shape) + 1):
+        if self.recurrent and len(observation.shape) == len(self.observation_shape) + 1:
             observation = observation.unsqueeze(0)
 
         return observation
@@ -415,7 +413,7 @@ class InjectiveBranchModel(BranchModel):
                  **kwargs):
         super().__init__(
             observation_shape, action_shape, encoder=encoder,
-            encoded_dim=encoded_dim, head=head,  optimizer=optimizer, lr=lr,
+            encoded_dim=encoded_dim, head=head, optimizer=optimizer, lr=lr,
             grad_clip=grad_clip, make_target=make_target, discrete=discrete,
             deterministic=deterministic, default=default, reorder=reorder,
             flatten=flatten,

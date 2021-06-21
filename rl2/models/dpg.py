@@ -1,6 +1,6 @@
 from torch.distributions import Distribution
 
-from rl2.models.torch.base import PolicyBasedModel
+from rl2.models.base import PolicyBasedModel
 
 
 class DPGModel(PolicyBasedModel):

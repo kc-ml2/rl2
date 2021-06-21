@@ -69,15 +69,16 @@ When the two branches are run sequentially, the encoder will be run twice, which
 In this case, the function that runs both branches at the same time can be decorated using
 
 ```python
-from rl2.models.torch.base import TorchModel
+from rl2.models.base import TorchModel
+
 
 # policy and value are instances of BranchModel
 
 @TorchModel.sharedbranch
 def forward(x):
-	  pi = policy(x)
-	  v = value(x)
-	  return pi, v
+    pi = policy(x)
+    v = value(x)
+    return pi, v
 ```
 
 Running the decorated function will trigger the encoders to save the output per input and use the previously inference intermediate representation for the same input. Therefore, running two branches sequentially for same input is now same as simply having the common encoder as the following. 

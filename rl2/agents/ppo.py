@@ -5,14 +5,13 @@ import torch.nn.functional as F
 import numpy as np
 
 from rl2.agents.base import Agent
-from rl2.models.torch.base import TorchModel, BranchModel
+from rl2.models.base import TorchModel, BranchModel
 from rl2.agents.utils import general_advantage_estimation
 from rl2.buffers import ReplayBuffer, TemporalMemory
 
 
 def loss_func(data, model,
               hidden=None, clip_param=0.1, vf_coef=0.5, ent_coef=0.001):
-
     obs, old_acs, dones, _, old_vals, old_nlps, advs = data
     obs, old_acs, dones, old_vals, old_nlps, advs = map(
         lambda x: torch.from_numpy(x).float().to(model.device),
@@ -51,6 +50,7 @@ class PPOModel(TorchModel):
     predefined model
     (same one as original paper)
     """
+
     def __init__(self,
                  observation_shape,
                  action_shape,
@@ -164,12 +164,17 @@ class PPOAgent(Agent):
                  gamma: float = 0.99,
                  lamda: float = 0.95,
                  log_interval: int = int(1e3),
+                 use_gail=True,
                  **kwargs):
         # self.buffer = ReplayBuffer()
+        self.use_gail = True
+        if self.use_gail is True:
+            self.discriminator = kwargs.pop('discriminator')
+            self.expert_trajs = kwargs.pop('expert_trajs')
         super().__init__(model, train_interval, num_epochs,
                          buffer_cls, buffer_kwargs, **kwargs)
 
-        self.trajs = []
+        self.use_gail = use_gail
         # TODO: some of these can be moved to base class
         self.obs = None
         self.n_env = n_env
@@ -203,6 +208,61 @@ class PPOAgent(Agent):
 
         return action
 
+    def flatten(self, data):
+        ret = []
+        for i in data:
+            for j in i:
+                ret.append(j.flatten())
+
+        return ret
+
+    def fa(self, data):
+        ret = []
+        for i in data:
+            for j in i:
+                ret.append(j)
+        return ret
+
+    def pack_data(self):
+        # import pdb; pdb.set_trace()
+        flat_eobss = self.flatten(self.expert_trajs[0])
+        flat_eacs = self.fa(self.expert_trajs[1])
+        one_hots = np.eye(5)
+        edata = np.asarray([np.concatenate([i, one_hots[j]]) for i, j in
+                            zip(flat_eobss, flat_eacs)])
+
+        self.buffer.shuffle()
+        sample = self.buffer.sample(1024, return_idx=True)
+
+        so = [i.flatten() for i in sample[0]]
+        sa = [one_hots[int(i)] for i in sample[1]]
+
+        adata = np.asarray([np.concatenate([i, j]) for i, j in zip(so, sa)])
+
+        idxes = np.random.randint(0, len(edata), size=1024)
+        edata = edata[idxes]
+
+        idxes = np.random.randint(0, len(adata), size=1024)
+        adata = adata[idxes]
+
+        return edata, adata
+
+    def _update_rew(self):
+        #####(TODO)
+        # import pdb; pdb.set_trace()
+        s = np.array(self.buffer.state)
+        t, b = s.shape[0], s.shape[1]
+        a = np.array(self.buffer.action).flatten()
+        s_disc = torch.FloatTensor(s).to('cuda').view(t * b, -1)
+        one_hots = np.eye(5)
+        a_disc = torch.FloatTensor(one_hots[a]).to('cuda')
+        input_disc = torch.cat([s_disc, a_disc], -1)
+        with torch.no_grad():
+            p = self.discriminator(input_disc).mean.squeeze()
+            new_rew = -torch.log(1 - torch.sigmoid(p) + 1e-8).view(t, b)
+            new_rew = new_rew.cpu().numpy()
+        self.buffer.reward = [r for r in new_rew]
+
     def step(self, s, a, r, d, s_):
         self.curr_step += 1
         self.collect(s, a, r, self.done, self.value, self.nlp)
@@ -213,9 +273,25 @@ class PPOAgent(Agent):
 
         info = {}
         if self.curr_step % self.train_interval == 0:
-            if self.curr_step > 4000:   
-                print(f"adding expert's T...{self.curr_step}")
-                self.trajs.append(self.buffer.to_dict())
+            if self.use_gail:
+                print('updating disc')
+                # import pdb;pdb.set_trace()
+                edata, adata = self.pack_data()
+                data = np.concatenate([edata, adata])
+                data = torch.FloatTensor(data).to('cuda')
+                output__ = self.discriminator(data).mean
+                output = torch.flatten(output__)
+                print(output)
+
+                elabels = torch.ones(len(edata)).to('cuda')
+                alabels = torch.zeros(len(adata)).to('cuda')
+
+                labels = torch.cat([elabels, alabels])
+                loss = F.binary_cross_entropy_with_logits(output, labels)
+                self.discriminator.step(loss)
+
+                self._update_rew()
+
             value = self.model.val(s_)
             advs = general_advantage_estimation(self.buffer.to_dict(),
                                                 value, d,
@@ -250,9 +326,10 @@ class PPOAgent(Agent):
                 self.model.value.step(loss)
                 losses.append(loss.item())
         info = {
-            'Loss/All': sum(losses) / len(losses)
+            'Loss/All': sum(losses) / (len(losses) + 1e-8)
         }
         return info
 
     def collect(self, *args):
+        ##########
         self.buffer.push(*args)

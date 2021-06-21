@@ -211,7 +211,7 @@ if __name__ == '__main__':
                       logger=logger)
 
     worker = EpisodicWorker(env=env,
-                            n_env=1,
+                            num_envs=1,
                             agent=agent,
                             training=True,
                             max_episodes=1e4,

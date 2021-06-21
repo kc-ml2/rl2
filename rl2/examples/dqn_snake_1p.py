@@ -60,7 +60,7 @@ def train(config):
         reward_dict=custom_reward,
     )
     agent = dqn(observation_shape, action_shape, config, props)
-    worker = MaxStepWorker(env, props.n_env, agent,
+    worker = MaxStepWorker(env, props.num_envs, agent,
                            max_steps=config.max_step, training=True,
                            log_interval=config.log_interval,
                            render=True,
@@ -94,7 +94,7 @@ def test(config, load_dir=None):
     agent = dqn(observation_shape, action_shape, config, props,
                 load_dir=model_file)
     worker = EpisodicWorker(env=env,
-                            n_env=1,
+                            num_envs=1,
                             agent=agent,
                             training=False,
                             max_episodes=3,

@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from typing import Callable, Type
 from rl2.agents.base import Agent
 from rl2.buffers.base import ExperienceReplay, ReplayBuffer
-from rl2.models.torch.base import BranchModel, TorchModel
+from rl2.models.base import BranchModel, TorchModel
 from rl2.agents.utils import LinearDecay
 
 

@@ -8,11 +8,10 @@ from collections.abc import Iterable
 from torch.distributions import Distribution
 
 from rl2.agents.configs import DEFAULT_MADDPG_CONFIG
-from rl2.agents.base import Agent, MAgent
+from rl2.agents.base import MAgent
+from rl2.models.base import TorchModel
 from rl2.agents.ddpg import DDPGModel
-from rl2.models.torch.base import TorchModel
-from rl2.agents.ddpg import DDPGModel
-from rl2.buffers.base import ReplayBuffer, ExperienceReplay
+from rl2.buffers.base import ExperienceReplay
 
 import time
 

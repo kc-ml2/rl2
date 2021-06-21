@@ -8,8 +8,8 @@ import torch.nn.functional as F
 from torch.distributions import Distribution
 from rl2.agents.base import Agent
 from rl2.buffers.base import ExperienceReplay, ReplayBuffer
-from rl2.models.torch.base import TorchModel
-from rl2.models.torch.base import InjectiveBranchModel, BranchModel
+from rl2.models.base import TorchModel
+from rl2.models.base import InjectiveBranchModel, BranchModel
 
 
 def loss_func_ac(data, model, **kwargs):

@@ -25,18 +25,18 @@ def ppo(obs_shape, ac_shape, config, props, load_dir=None):
         model.load(load_dir)
     agent = PPOAgent(model,
                      train_interval=config.train_interval,
-                     n_env=props.n_env,
+                     n_env=props.num_envs,
                      batch_size=config.batch_size,
                      num_epochs=config.epoch,
                      buffer_kwargs={'size': config.train_interval,
-                                    'n_env': props.n_env})
+                                    'n_env': props.num_envs})
     return agent
 
 
 def train(config):
     logger = Logger(name='MATRAIN', args=config)
     env, observation_shape, action_shape, props = make_snake(
-        n_env=config.n_env,
+        n_env=config.num_envs,
         num_snakes=config.num_snakes,
         width=config.width,
         height=config.height,
@@ -48,7 +48,7 @@ def train(config):
     for _ in range(config.num_snakes):
         agents.append(ppo(observation_shape, action_shape, config, props))
 
-    worker = MAMaxStepWorker(env, props.n_env, agents,
+    worker = MAMaxStepWorker(env, props.num_envs, agents,
                              max_steps=int(1e5),
                              training=True,
                              logger=logger,
@@ -96,7 +96,7 @@ def test(config, load_dir=None):
                 load_dir=model_file)
         )
 
-    worker = MAEpisodicWorker(env, props.n_env, agents,
+    worker = MAEpisodicWorker(env, props.num_envs, agents,
                               max_episodes=3, training=False,
                               render=True,
                               render_interval=1,
@@ -126,5 +126,6 @@ if __name__ == "__main__":
     config = EasyDict(myconfig)
 
     log_dir = train(config)
+    print(log_dir)
     # log_dir = 'runs/DEBUG/20210505180137'
     #test(config, load_dir=log_dir)
