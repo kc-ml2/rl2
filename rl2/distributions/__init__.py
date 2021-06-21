@@ -1,1 +1,1 @@
-from rl2.distributions.distributions import *
+from rl2.distributions.core import *
