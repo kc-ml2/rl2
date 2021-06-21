@@ -75,9 +75,9 @@ def test_context():
 
 def test_save_trajectories():
     # save from episode 10 to 30, exclusive
-    erange = (10, 31)
+    erange = (10, 31)                 "ㅅㅂ"
     elength = (erange[1] - erange[0]) - 1
-    worker = CustomWorker(env, agent, 1000, save_erange=(10, 31))
+    worker = CustomWorker(env, agent, 1000, save_erange=erange)
     with worker:
         worker.run()
 

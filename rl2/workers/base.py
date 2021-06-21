@@ -90,7 +90,6 @@ class RolloutWorker:
     def run(self):
         raise NotImplementedError
 
-
     def __enter__(self):
         self.start = time.clock()
 
@@ -129,8 +128,10 @@ class RolloutWorker:
 
     def rollout(self):
         action = self.agent.act(self.obs)
-        if self.in_erange():
+        if self.in_erange() is True:
             # S_t, A_t
+            # print(self.curr_episode)
+            print(self.save_erange, self.curr_episode)
             self.curr_trajectory.append((self.obs, action))
 
         if hasattr(action, 'shape'):
@@ -165,19 +166,17 @@ class RolloutWorker:
         else:
             if done:
                 # episode changes from below
-                self.curr_episode += 1
                 obs = self.env.reset()
                 self.scores.append(self.episode_score)
                 self.episode_score = 0.
                 self.episode_length.append(self.episode_steps)
                 self.episode_steps = 0
 
-
-                if self.in_erange():
+                if self.in_erange() is True:
                     self.trajectories.append(self.curr_trajectory)
                     self.curr_trajectory = []
 
-
+                self.curr_episode += 1
 
         self.obs = obs
         results = None
