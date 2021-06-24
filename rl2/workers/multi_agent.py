@@ -11,7 +11,7 @@ class MultiAgentRolloutWorker:
     def __init__(
         self,
         env,
-        n_env,
+        num_envs,
         agents: List[Agent],
         training=False,
         render=False,
@@ -21,7 +21,7 @@ class MultiAgentRolloutWorker:
         **kwargs
     ):
         self.env = env
-        self.n_env = n_env
+        self.num_envs = num_envs
         self.agents = agents
         self.n_agents = len(agents)
         self.training = training
@@ -40,10 +40,10 @@ class MultiAgentRolloutWorker:
         self.scores = deque(maxlen=100)
         self.ep_length = deque(maxlen=100)
         self.episode_score = np.zeros(1)
-        self.ep_steps = 0 if self.n_env == 1 else np.zeros(self.n_env)
+        self.ep_steps = 0 if self.num_envs == 1 else np.zeros(self.num_envs)
 
         self.obs = env.reset()
-        if self.n_env > 1 and self.n_agents > 1:
+        if self.num_envs > 1 and self.n_agents > 1:
             # In case there are both multi-env and multi-agents, put the
             # dimension order priority in number of agents.
             self.obs = np.array(self.obs).swapaxes(0, 1)
@@ -59,12 +59,12 @@ class MultiAgentRolloutWorker:
         # Number of agents should always match with number of dimensions
         # returned and possibly the dones.
         acs = [agent.act(obs) for agent, obs in zip(self.agents, self.obs)]
-        if self.n_env > 1 and self.n_agents > 1:
+        if self.num_envs > 1 and self.n_agents > 1:
             acs = np.array(acs).swapaxes(0, 1)
 
         obss, rews, dones, info = self.env.step(acs)
         self.episode_score = self.episode_score + np.array(rews)
-        if self.n_env > 1 and self.n_agents > 1:
+        if self.num_envs > 1 and self.n_agents > 1:
             # Swap axes so that the first dimension is agents
             obss = np.array(obss).swapaxes(0, 1)
             acs = np.array(acs).swapaxes(0, 1)
@@ -83,10 +83,10 @@ class MultiAgentRolloutWorker:
                 info_a = agent.step(obs, ac, rew, done, obs_)
                 infos.update(info_a)
 
-        self.num_steps += self.n_env
+        self.num_steps += self.num_envs
         dones = np.asarray(dones)
         self.ep_steps = self.ep_steps + 1
-        if self.n_env == 1:
+        if self.num_envs == 1:
             if self.n_agents > 1:
                 dones = all(dones)
             if dones:
