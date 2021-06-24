@@ -151,7 +151,7 @@ class PPOAgent(Agent):
                  model: TorchModel,
                  train_interval: int = 128,
                  num_epochs: int = 1,
-                 n_env=1,
+                 num_envs=1,
                  buffer_cls: ReplayBuffer = TemporalMemory,
                  buffer_kwargs: dict = None,
                  batch_size: int = 128,
@@ -177,11 +177,11 @@ class PPOAgent(Agent):
         self.use_gail = use_gail
         # TODO: some of these can be moved to base class
         self.obs = None
-        self.n_env = n_env
-        if self.n_env == 1:
+        self.num_envs = num_envs
+        if self.num_envs == 1:
             self.done = False
         else:
-            self.done = [False] * n_env
+            self.done = [False] * num_envs
         self.gamma = gamma
         self.batch_size = batch_size
         self.update_after = 1
@@ -306,7 +306,7 @@ class PPOAgent(Agent):
     def train(self, advs, **kwargs):
         losses = []
         for _ in range(self.num_epochs):
-            num_minibatches = (self.buffer.curr_size * self.n_env
+            num_minibatches = (self.buffer.curr_size * self.num_envs
                                // self.batch_size)
             self.buffer.shuffle()
             for mb_idx in range(num_minibatches):

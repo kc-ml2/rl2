@@ -177,7 +177,7 @@ class ExperienceReplay(ReplayBuffer):
 
 
 class TemporalMemory(ReplayBuffer):
-    def __init__(self, size=1, n_env=1):
+    def __init__(self, size=1, num_envs=1):
         super().__init__(
             size, elements=[
                 'state',
@@ -188,12 +188,12 @@ class TemporalMemory(ReplayBuffer):
                 'nlp'
             ]
         )
-        self.n_env = n_env
+        self.num_envs = num_envs
         self.shuffle()
 
     def shuffle(self):
-        self.time_idx_queue = np.random.permutation(self.max_size * self.n_env)
-        self.env_idx_queue = np.random.permutation(self.n_env)
+        self.time_idx_queue = np.random.permutation(self.max_size * self.num_envs)
+        self.env_idx_queue = np.random.permutation(self.num_envs)
         self.start = 0
 
     def push(self, s, a, r, d, v, nlp):
@@ -209,10 +209,10 @@ class TemporalMemory(ReplayBuffer):
             num_skip = env_sample_size
         transitions = super().sample(num, idx=idx, return_idx=return_idx)
 
-        if self.n_env > 1:
+        if self.num_envs > 1:
             if recurrent:
                 idx = transitions.idx
-                # sub_idx = np.random.permutation(self.n_env)[:env_sample_size]
+                # sub_idx = np.random.permutation(self.num_envs)[:env_sample_size]
                 sub_idx = self.env_idx_queue[self.start:self.start + num_skip]
                 output = [transitions.state[:, sub_idx],
                           transitions.action[:, sub_idx].reshape(-1, 1),
@@ -224,10 +224,10 @@ class TemporalMemory(ReplayBuffer):
                 idx = mesh[0]
                 sub_idx = mesh[1]
                 self.start += num_skip
-                if self.start > self.n_env:
+                if self.start > self.num_envs:
                     self.start = 0
             else:
-                # rand_idx = np.random.permutation(self.curr_size * self.n_env)[:num]
+                # rand_idx = np.random.permutation(self.curr_size * self.num_envs)[:num]
                 rand_idx = self.time_idx_queue[self.start:
                                                self.start + num_skip]
                 state = transitions.state
@@ -236,8 +236,8 @@ class TemporalMemory(ReplayBuffer):
                            transitions.nlp]
                 output = [state.reshape(-1, *state.shape[2:])[rand_idx],
                           *[el.reshape(-1, 1)[rand_idx] for el in scalars]]
-                idx = transitions.idx[rand_idx // self.n_env]
-                sub_idx = rand_idx % self.n_env
+                idx = transitions.idx[rand_idx // self.num_envs]
+                sub_idx = rand_idx % self.num_envs
                 self.start += num_skip
                 if self.start > self.curr_size:
                     self.start = 0

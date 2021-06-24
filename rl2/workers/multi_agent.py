@@ -119,7 +119,7 @@ class SelfRolloutWorker:
     def __init__(
         self,
         env,
-        n_env,
+        num_envs,
         agent,
         n_agents=0,
         training=False,
@@ -130,7 +130,7 @@ class SelfRolloutWorker:
         **kwargs
     ):
         self.env = env
-        self.n_env = n_env
+        self.num_envs = num_envs
         self.agent = agent
         assert n_agents > 0, "Must provide n_agents"
         self.n_agents = n_agents
@@ -150,11 +150,11 @@ class SelfRolloutWorker:
         self.scores = deque(maxlen=100)
         self.ep_length = deque(maxlen=100)
         self.episode_score = np.zeros(1)
-        self.ep_steps = 0 if self.n_env == 0 else np.zeros(self.n_env)
+        self.ep_steps = 0 if self.num_envs == 0 else np.zeros(self.num_envs)
 
         self.obs = env.reset()
         self.obs = np.asarray(self.obs)
-        if self.n_env > 1:
+        if self.num_envs > 1:
             # Squash first two dimensions to make them like a batch
             self.obs = self.obs.reshape((-1, *self.obs.shape[2:]))
 
@@ -167,12 +167,12 @@ class SelfRolloutWorker:
         # Number of agents should always match with number of dimensions
         # returned and possibly the dones.
         acs = self.agent.act(self.obs).reshape(
-            self.n_env, self.n_agents, -1).squeeze()
+            self.num_envs, self.n_agents, -1).squeeze()
 
         obss, rews, dones, info = self.env.step(acs)
         self.episode_score = self.episode_score + np.array(rews)
         obss = np.asarray(obss)
-        if self.n_env > 1 and self.n_agents > 1:
+        if self.num_envs > 1 and self.n_agents > 1:
             # Swap axes so that the first dimension is agents
             obss = obss.reshape(-1, *obss.shape[2:])
             acs = acs.flatten()
@@ -189,9 +189,9 @@ class SelfRolloutWorker:
         if self.training:
             self.agent.step(self.obs, acs, rews, dones, obss)
 
-        self.num_steps += self.n_env
+        self.num_steps += self.num_envs
         self.ep_steps = self.ep_steps + 1
-        if self.n_env == 1:
+        if self.num_envs == 1:
             if self.n_agents > 1:
                 dones = all(dones)
             if dones:
@@ -204,7 +204,7 @@ class SelfRolloutWorker:
                 self.ep_steps = 0
         else:
             if self.n_agents > 1:
-                # dones = dones.reshape(self.n_agents, self.n_env)
+                # dones = dones.reshape(self.n_agents, self.num_envs)
                 dones = ep_dones.all(axis=1)
             # Vector env + centralized
             self.num_episodes += sum(dones)
@@ -231,21 +231,21 @@ def dynamic_class(cls1, cls2, *args, **kwargs):
     return CombinedClass(*args, **kwargs)
 
 
-def MAMaxStepWorker(env, n_env, agent, **kwargs):
+def MAMaxStepWorker(env, num_envs, agent, **kwargs):
     return dynamic_class(MultiAgentRolloutWorker, MaxStepWorker,
-                         env, n_env, agent, **kwargs)
+                         env, num_envs, agent, **kwargs)
 
 
-def SelfMaxStepWorker(env, n_env, agent, **kwargs):
+def SelfMaxStepWorker(env, num_envs, agent, **kwargs):
     return dynamic_class(SelfRolloutWorker, MaxStepWorker,
-                         env, n_env, agent, **kwargs)
+                         env, num_envs, agent, **kwargs)
 
 
-def MAEpisodicWorker(env, n_env, agent, **kwargs):
+def MAEpisodicWorker(env, num_envs, agent, **kwargs):
     return dynamic_class(MultiAgentRolloutWorker, EpisodicWorker,
-                         env, n_env, agent, **kwargs)
+                         env, num_envs, agent, **kwargs)
 
 
-def SelfEpisodicWorker(env, n_env, agent, **kwargs):
+def SelfEpisodicWorker(env, num_envs, agent, **kwargs):
     return dynamic_class(SelfRolloutWorker, EpisodicWorker,
-                         env, n_env, agent, **kwargs)
+                         env, num_envs, agent, **kwargs)

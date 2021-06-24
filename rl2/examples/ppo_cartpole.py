@@ -15,6 +15,7 @@ def make_cartpole(seed=None):
         if seed is not None:
             env.seed(seed)
         return env
+
     return _make
 
 
@@ -24,31 +25,33 @@ def make_snake():
                        vision_range=5)
         env = SingleAgent(env)
         return env
+
     return _make
 
 
 def make_single():
-    n_env = 1
+    num_envs = 1
     env = make_cartpole()()
     # env = make_snake()()
     observation_shape = env.observation_space.shape
     action_shape = (env.action_space.n,)
     high = env.observation_space.high
-    return n_env, env, observation_shape, action_shape, high
+    return num_envs, env, observation_shape, action_shape, high
+
 
 def make_vec():
-    n_env = 64
+    num_envs = 64
     # dummyenv = make_cartpole()()
-    # env = AsyncVectorEnv([make_cartpole() for i in range(n_env)])
+    # env = AsyncVectorEnv([make_cartpole() for i in range(num_envs)])
     dummyenv = make_snake()()
-    env = AsyncVectorEnv([make_snake() for i in range(n_env)])
+    env = AsyncVectorEnv([make_snake() for i in range(num_envs)])
     observation_shape = dummyenv.observation_space.shape
     action_shape = (dummyenv.action_space.n,)
     high = dummyenv.observation_space.high
-    return n_env, env, observation_shape, action_shape, high
+    return num_envs, env, observation_shape, action_shape, high
 
 
-n_env, env, observation_shape, action_shape, high = make_single()
+num_envs, env, observation_shape, action_shape, high = make_single()
 reorder = True
 
 
@@ -61,16 +64,16 @@ def ppo():
                      optimizer='torch.optim.RMSprop',
                      high=high)
     train_interval = 128
-    num_env = n_env
+    num_env = num_envs
     epoch = 4
     batch_size = 512
     agent = PPOAgent(model,
                      train_interval=train_interval,
-                     n_env=n_env,
+                     num_envs=num_envs,
                      batch_size=batch_size,
                      num_epochs=epoch,
                      buffer_kwargs={'size': train_interval,
-                                    'n_env': num_env})
+                                    'num_envs': num_env})
     return agent
 
 
@@ -93,7 +96,7 @@ def ddpg():
 
 # agent = ppo()
 agent = ddpg()
-worker = MaxStepWorker(env, n_env, agent, max_steps=int(5e6), training=True)
+worker = MaxStepWorker(env, num_envs, agent, max_steps=int(5e6), training=True)
 
 worker.run()
 

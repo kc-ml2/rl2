@@ -31,13 +31,13 @@ class LSTM(nn.Module):
         self.c_gate = nn.Linear(obs_dim + h_dim, h_dim)
 
     def forward(self, x, hidden=None, mask=None):
-        # x is given in (t, n_env, features)
-        # hidden in given as (h, c) where h and c are in (1, n_env, h_dim)
-        # mask is given in (t, n_env)
-        n_env = x.shape[1]
+        # x is given in (t, num_envs, features)
+        # hidden in given as (h, c) where h and c are in (1, num_envs, h_dim)
+        # mask is given in (t, num_envs)
+        num_envs = x.shape[1]
         if hidden is None:
-            h = torch.zeros(1, n_env, self.h_dim).to(x)
-            c = torch.zeros(1, n_env, self.h_dim).to(x)
+            h = torch.zeros(1, num_envs, self.h_dim).to(x)
+            c = torch.zeros(1, num_envs, self.h_dim).to(x)
         else:
             h, c = hidden
         outs = []

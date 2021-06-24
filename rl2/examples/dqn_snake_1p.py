@@ -51,7 +51,7 @@ def train(config):
         'time': 0.0
     }
     env, observation_shape, action_shape, props = make_snake(
-        n_env=1,
+        num_envs=1,
         num_snakes=1,
         width=config.width,
         height=config.height,
@@ -84,7 +84,7 @@ def test(config, load_dir=None):
     logger = Logger(name='TUTORIAL', args=config)
 
     env, observation_shape, action_shape, props = make_snake(
-        n_env=1,
+        num_envs=1,
         num_snakes=1,
         width=config.width,
         height=config.height,

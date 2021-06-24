@@ -25,18 +25,18 @@ def ppo(obs_shape, ac_shape, config, props, load_dir=None):
         model.load(load_dir)
     agent = PPOAgent(model,
                      train_interval=config.train_interval,
-                     n_env=props.num_envs * config.num_snakes,
+                     num_envs=props.num_envs * config.num_snakes,
                      batch_size=config.batch_size,
                      num_epochs=config.epoch,
                      buffer_kwargs={'size': config.train_interval,
-                                    'n_env': props.num_envs * config.num_snakes})
+                                    'num_envs': props.num_envs * config.num_snakes})
     return agent
 
 
 def train(config):
     logger = Logger(name='CPPO', args=config)
     env, observation_shape, action_shape, props = make_snake(
-        n_env=config.num_envs,
+        num_envs=config.num_envs,
         num_snakes=config.num_snakes,
         width=config.width,
         height=config.height,
@@ -74,7 +74,7 @@ def test(config, load_dir=None):
     logger = Logger(name='MATEST', args=config)
 
     env, observation_shape, action_shape, props = make_snake(
-        n_env=1,
+        num_envs=1,
         num_snakes=config.num_snakes,
         width=config.width,
         height=config.height,
@@ -100,7 +100,7 @@ def test(config, load_dir=None):
 
 if __name__ == "__main__":
     myconfig = {
-        'n_env': 64,
+        'num_envs': 64,
         'num_snakes': 4,
         'width': 20,
         'height': 20,
@@ -123,7 +123,7 @@ if __name__ == "__main__":
     log_dir = train(config)
     # test(config, load_dir=log_dir)
 
-    # worker = CentralizedEpisodicWorker(env, n_env, agent,
+    # worker = CentralizedEpisodicWorker(env, num_envs, agent,
     #                                    max_episodes=100000,
     #                                    training=True,
     #                                    logger=logger,
