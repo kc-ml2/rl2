@@ -167,5 +167,5 @@ worker = MaxStepWorker(
     logger=logger,
     num_envs=props['num_envs'],
 )
-with worker:
+with worker.as_saving():
     worker.run()
