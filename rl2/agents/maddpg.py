@@ -2,7 +2,6 @@ from typing import List
 import numpy as np
 import torch
 import torch.nn.functional as F
-from easydict import EasyDict
 import collections
 from collections.abc import Iterable
 from torch.distributions import Distribution
@@ -14,6 +13,8 @@ from rl2.agents.ddpg import DDPGModel
 from rl2.buffers.base import ExperienceReplay
 
 import time
+
+from rl2.utils import EasyDict
 
 
 def loss_func_ac(transitions,

@@ -17,22 +17,24 @@ class Agent:
             self,
             # model must be instantiated and initialized before passing as argument
             model: Union[TorchModel, TFModel],
-            train_interval,
-            num_epochs,
             # device,
-            buffer_cls,
-            buffer_kwargs,
+            buffer_cls=None,
+            buffer_kwargs=None,
+            train_interval=0,
+            num_epochs=0,
     ):
         self.curr_step = 0
         self.train_interval = train_interval
+        print(train_interval)
+        print(self.train_interval)
 
         # """
         self.model = model
 
         self.num_epochs = num_epochs
         # self.device = device
-
-        self.buffer = buffer_cls(**buffer_kwargs)
+        if self.train_interval > 0:
+            self.buffer = buffer_cls(**buffer_kwargs)
         self._hook = None
 
     @property

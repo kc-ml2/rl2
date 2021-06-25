@@ -10,8 +10,10 @@ from rl2.agents.utils import general_advantage_estimation
 from rl2.buffers import ReplayBuffer, TemporalMemory
 
 
-def loss_func(data, model,
-              hidden=None, clip_param=0.1, vf_coef=0.5, ent_coef=0.001):
+def loss_func(
+        data, model,
+        hidden=None, clip_param=0.1, vf_coef=0.5, ent_coef=0.001
+):
     obs, old_acs, dones, _, old_vals, old_nlps, advs = data
     obs, old_acs, dones, old_vals, old_nlps, advs = map(
         lambda x: torch.from_numpy(x).float().to(model.device),
@@ -51,43 +53,49 @@ class PPOModel(TorchModel):
     (same one as original paper)
     """
 
-    def __init__(self,
-                 observation_shape,
-                 action_shape,
-                 encoder: torch.nn.Module = None,
-                 encoded_dim: int = 64,
-                 optimizer='torch.optim.Adam',
-                 lr=1e-4,
-                 discrete: bool = True,
-                 deterministic: bool = False,
-                 flatten: bool = False,
-                 reorder: bool = False,
-                 recurrent: bool = False,
-                 **kwargs):
+    def __init__(
+            self,
+            observation_shape,
+            action_shape,
+            encoder: torch.nn.Module = None,
+            encoded_dim: int = 64,
+            optimizer='torch.optim.Adam',
+            lr=1e-4,
+            discrete: bool = True,
+            deterministic: bool = False,
+            flatten: bool = False,
+            reorder: bool = False,
+            recurrent: bool = False,
+            **kwargs
+    ):
         super().__init__(observation_shape, action_shape, **kwargs)
         if hasattr(encoder, 'output_shape'):
             encoded_dim = encoder.output_shape
         # Handles only the 1-dim action space
         self.encoded_dim = encoded_dim
         self.recurrent = recurrent
-        self.policy = BranchModel(observation_shape, action_shape,
-                                  encoded_dim=encoded_dim,
-                                  discrete=discrete,
-                                  deterministic=deterministic,
-                                  flatten=flatten,
-                                  reorder=reorder,
-                                  recurrent=self.recurrent,
-                                  **kwargs)
+        self.policy = BranchModel(
+            observation_shape, action_shape,
+            encoded_dim=encoded_dim,
+            discrete=discrete,
+            deterministic=deterministic,
+            flatten=flatten,
+            reorder=reorder,
+            recurrent=self.recurrent,
+            **kwargs
+        )
 
-        self.value = BranchModel(observation_shape, (1,),
-                                 encoder=self.policy.encoder,
-                                 encoded_dim=encoded_dim,
-                                 discrete=False,
-                                 deterministic=True,
-                                 flatten=flatten,
-                                 reorder=reorder,
-                                 recurrent=self.recurrent,
-                                 **kwargs)
+        self.value = BranchModel(
+            observation_shape, (1,),
+            encoder=self.policy.encoder,
+            encoded_dim=encoded_dim,
+            discrete=False,
+            deterministic=True,
+            flatten=flatten,
+            reorder=reorder,
+            recurrent=self.recurrent,
+            **kwargs
+        )
         self.init_params(self.policy)
         self.init_params(self.value)
 
@@ -147,6 +155,7 @@ class PPOModel(TorchModel):
 
 
 class PPOAgent(Agent):
+<<<<<<< HEAD
     def __init__(self,
                  model: TorchModel,
                  train_interval: int = 128,
@@ -168,11 +177,43 @@ class PPOAgent(Agent):
                  **kwargs):
         # self.buffer = ReplayBuffer()
         self.use_gail = True
+=======
+    def __init__(
+            self,
+            model: TorchModel,
+            train_interval: int = 0,
+            num_epochs: int = 1,
+            num_envs=1,
+            buffer_cls: ReplayBuffer = TemporalMemory,
+            buffer_kwargs: dict = None,
+            batch_size: int = 128,
+            val_coef: float = 0.5,
+            action_low: np.array = None,
+            action_high: np.ndarray = None,
+            loss_func: Callable = loss_func,
+            save_interval: int = int(1e5),
+            update_after: int = 1,
+            gamma: float = 0.99,
+            lamda: float = 0.95,
+            log_interval: int = int(1e3),
+            use_gail=False,
+            **kwargs
+    ):
+        self.use_gail = use_gail
+>>>>>>> refactor with respect to gail
         if self.use_gail is True:
             self.discriminator = kwargs.pop('discriminator')
             self.expert_trajs = kwargs.pop('expert_trajs')
-        super().__init__(model, train_interval, num_epochs,
-                         buffer_cls, buffer_kwargs, **kwargs)
+
+        # print(train_interval)
+        super().__init__(
+            model,
+            train_interval=train_interval,
+            num_epochs=num_epochs,
+            buffer_cls=buffer_cls,
+            buffer_kwargs=buffer_kwargs,
+            **kwargs
+        )
 
         self.use_gail = use_gail
         # TODO: some of these can be moved to base class
@@ -225,11 +266,20 @@ class PPOAgent(Agent):
 
     def pack_data(self):
         # import pdb; pdb.set_trace()
-        flat_eobss = self.flatten(self.expert_trajs[0])
-        flat_eacs = self.fa(self.expert_trajs[1])
+        flat_eobss = []
+        flat_eacs = []
+        for traj in self.expert_trajs:
+            for datum in traj:
+                # print(datum)
+                obs, ac = datum[0], datum[1]
+                flat_eobss.append(np.asarray(obs).flatten())
+                flat_eacs.append(ac)
+
         one_hots = np.eye(5)
-        edata = np.asarray([np.concatenate([i, one_hots[j]]) for i, j in
-                            zip(flat_eobss, flat_eacs)])
+
+        edata = np.asarray(
+            [np.concatenate([i, one_hots[j]]) for i, j in zip(flat_eobss, flat_eacs)]
+        )
 
         self.buffer.shuffle()
         sample = self.buffer.sample(1024, return_idx=True)
@@ -253,9 +303,9 @@ class PPOAgent(Agent):
         s = np.array(self.buffer.state)
         t, b = s.shape[0], s.shape[1]
         a = np.array(self.buffer.action).flatten()
-        s_disc = torch.FloatTensor(s).to('cuda').view(t * b, -1)
+        s_disc = torch.FloatTensor(s).to('cpu').view(t * b, -1)
         one_hots = np.eye(5)
-        a_disc = torch.FloatTensor(one_hots[a]).to('cuda')
+        a_disc = torch.FloatTensor(one_hots[a]).to('cpu')
         input_disc = torch.cat([s_disc, a_disc], -1)
         with torch.no_grad():
             p = self.discriminator(input_disc).mean.squeeze()
@@ -274,17 +324,14 @@ class PPOAgent(Agent):
         info = {}
         if self.curr_step % self.train_interval == 0:
             if self.use_gail:
-                print('updating disc')
-                # import pdb;pdb.set_trace()
                 edata, adata = self.pack_data()
                 data = np.concatenate([edata, adata])
-                data = torch.FloatTensor(data).to('cuda')
+                data = torch.FloatTensor(data).to('cpu')
                 output__ = self.discriminator(data).mean
                 output = torch.flatten(output__)
-                print(output)
 
-                elabels = torch.ones(len(edata)).to('cuda')
-                alabels = torch.zeros(len(adata)).to('cuda')
+                elabels = torch.ones(len(edata)).to('cpu')
+                alabels = torch.zeros(len(adata)).to('cpu')
 
                 labels = torch.cat([elabels, alabels])
                 loss = F.binary_cross_entropy_with_logits(output, labels)
@@ -293,9 +340,9 @@ class PPOAgent(Agent):
                 self._update_rew()
 
             value = self.model.val(s_)
-            advs = general_advantage_estimation(self.buffer.to_dict(),
-                                                value, d,
-                                                self.gamma, self.lamda)
+            advs = general_advantage_estimation(
+                self.buffer.to_dict(), value, d, self.gamma, self.lamda
+            )
             info = self.train(advs)
             self.buffer.reset()
             if self.model.recurrent:

@@ -129,6 +129,7 @@ class RolloutWorker:
         logging.info(f'Time elapsed {self.end_dt - self.start_dt}.')
         logging.info(f'Ran from {self.start_dt} to {self.end_dt}.')
 
+
     @property
     def running_time(self):
         return self.end_dt - self.start_dt
@@ -265,6 +266,8 @@ class MaxStepWorker(RolloutWorker):
         steps_per_env = (self.max_steps // self.num_envs) + 1
         for step in range(steps_per_env):
             done, info, results = self.rollout()
+
+
             self.worker_log(done)
 
             if self.in_save_interval() is True:
