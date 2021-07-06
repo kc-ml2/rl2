@@ -161,7 +161,7 @@ class SelfRolloutWorker:
     def save(self, save_dir):
         save_dir = os.path.join(save_dir, f'ckpt/{int(self.num_steps/1000)}k')
         Path(save_dir).mkdir(parents=True, exist_ok=True)
-        self.agent.model.save(save_dir)
+        self.agent.model.save_model(save_dir)
 
     def rollout(self):
         # Number of agents should always match with number of dimensions

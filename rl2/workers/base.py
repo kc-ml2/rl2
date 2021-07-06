@@ -12,18 +12,7 @@ from rl2.agents.base import Agent
 import signal
 from datetime import datetime
 
-
 from rl2.utils import EasyDict
-
-# train_config = EasyDict()
-# train_config.save_interval = 0
-# train_config.train_interval = 0
-# train_config.optimizer = 'torch.optim.RMSprop'
-#
-# logger_config = EasyDict()
-# logger_config.log_interval = 0
-# logger_config.log_dir = 0
-# logger_config.log_level = 0
 
 import time
 
@@ -90,7 +79,6 @@ class RolloutWorker:
 
         self.obs = env.reset()
 
-
         self.save_erange = save_erange
         self.curr_trajectory = []
         self.trajectories = []
@@ -107,13 +95,12 @@ class RolloutWorker:
     def run(self):
         raise NotImplementedError
 
-
     def __enter__(self):
         self.start_dt = time.clock()
 
         # TODO: [feature] try to attach ipython session
         if self.saving_model is True:
-            signal.signal(signal.SIGINT, lambda sig, frame: self.save())
+            signal.signal(signal.SIGINT, lambda sig, frame: self.save_model())
 
         return self
 
@@ -122,13 +109,12 @@ class RolloutWorker:
 
         if self.saving_model is True:
             try:
-                self.save()
+                self.save_model()
             except Exception as e:
                 print(e)
 
         logging.info(f'Time elapsed {self.end_dt - self.start_dt}.')
         logging.info(f'Ran from {self.start_dt} to {self.end_dt}.')
-
 
     @property
     def running_time(self):
@@ -151,13 +137,13 @@ class RolloutWorker:
     def default_save_dir(self):
         return f"""{type(self).__name__}_{datetime.now().strftime('%Y%m%d%H%M%S')}"""
 
-    def save(self, save_dir=None):
+    def save_model(self, save_dir=None):
         if save_dir is None:
             save_dir = self.default_save_dir()
 
         save_dir = os.path.join(save_dir, f'ckpt/{int(self.num_steps / 1000)}k')
         Path(save_dir).mkdir(parents=True, exist_ok=True)
-        self.agent.model.save(save_dir)
+        self.agent.model.save_model(save_dir)
 
         logging.info(f'saved model to {save_dir}')
 
@@ -267,14 +253,14 @@ class MaxStepWorker(RolloutWorker):
         for step in range(steps_per_env):
             done, info, results = self.rollout()
 
-
             self.worker_log(done)
 
             if self.in_save_interval() is True:
                 self.save_model()
 
     def in_save_interval(self):
-        return (self.save_interval > 0) and ((self.num_steps % self.save_interval) < self.num_envs)
+        return (self.save_interval > 0) and (
+                (self.num_steps % self.save_interval) < self.num_envs)
 
     def save_model(self):
 
@@ -282,7 +268,7 @@ class MaxStepWorker(RolloutWorker):
             save_dir = getattr(self.logger, 'log_dir')
         else:
             save_dir = os.getcwd()
-        self.save(save_dir)
+        self.save_model(save_dir)
 
     def worker_log(self, done):
         # Save rendered image as gif
@@ -303,8 +289,9 @@ class MaxStepWorker(RolloutWorker):
                 image = self.env.render(self.render_mode)
                 self.logger.store_rgb(image)
             elif self.store_image:
-                self.logger.video_summary(tag='playback',
-                                          step=self.num_steps)
+                self.logger.video_summary(
+                    tag='playback', step=self.num_steps
+                )
                 self.store_image = False
         # Log info
         if self.num_steps % self.log_interval < self.num_envs:
@@ -348,7 +335,7 @@ class EpisodicWorker(RolloutWorker):
             prev_num_ep = self.curr_episode
             done, info, results = self.rollout()
 
-            # self.worker_log(done, prev_num_ep)
+            self.worker_log(done, prev_num_ep)
 
     def worker_log(self, done, prev_num_ep):
         if self.render_interval > 0 and self.start_log_image:
