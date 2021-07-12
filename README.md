@@ -143,7 +143,7 @@ worker.run()
 
 ---
 
-Refer to [this link](https://github.com/kc-ml2/rl2/rl2/examples) for more example scripts for training the predefined algorithms.
+Refer to [this link](https://github.com/kc-ml2/rl2/tree/main/rl2/examples) for more example scripts for training the predefined algorithms.
 
 **Predefined Algorithms**
 
