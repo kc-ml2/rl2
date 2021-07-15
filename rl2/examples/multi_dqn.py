@@ -3,7 +3,7 @@ from rl2.examples.temp_logger import LOG_LEVELS, Logger
 from rl2.agents.dqn import DQNAgent, DQNModel
 import gym
 import marlenv
-from easydict import EasyDict
+from rl2.utils import EasyDict
 from rl2.workers.multi_agent import IndividualEpisodicWorker
 
 # FIXME: Remove later

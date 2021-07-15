@@ -4,14 +4,14 @@ import torch.nn as nn
 
 
 class MLP(nn.Module):
-    def __init__(self, in_dim, out_dim, hidden=[128], activ='ReLU'):
+    def __init__(self, in_dim, out_dim, hidden_dims=[128], activ='ReLU'):
         super().__init__()
         mod_list = []
         prev = in_dim
-        for h in hidden:
-            mod_list.append(nn.Linear(prev, h))
+        for dim in hidden_dims:
+            mod_list.append(nn.Linear(prev, dim))
             mod_list.append(getattr(nn, activ)())
-            prev = h
+            prev = dim
         mod_list.append(nn.Linear(prev, out_dim))
         self.body = nn.Sequential(*mod_list)
 
@@ -20,15 +20,15 @@ class MLP(nn.Module):
 
 
 class LSTM(nn.Module):
-    def __init__(self, obs_dim, h_dim):
+    def __init__(self, obs_dim, hidden_dim):
         super().__init__()
         self.obs_dim = obs_dim
-        self.h_dim = h_dim
+        self.hidden_dim = hidden_dim
 
-        self.f_gate = nn.Linear(obs_dim + h_dim, h_dim)
-        self.i_gate = nn.Linear(obs_dim + h_dim, h_dim)
-        self.o_gate = nn.Linear(obs_dim + h_dim, h_dim)
-        self.c_gate = nn.Linear(obs_dim + h_dim, h_dim)
+        self.f_gate = nn.Linear(obs_dim + hidden_dim, hidden_dim)
+        self.i_gate = nn.Linear(obs_dim + hidden_dim, hidden_dim)
+        self.o_gate = nn.Linear(obs_dim + hidden_dim, hidden_dim)
+        self.c_gate = nn.Linear(obs_dim + hidden_dim, hidden_dim)
 
     def forward(self, x, hidden=None, mask=None):
         # x is given in (t, num_envs, features)
@@ -36,8 +36,8 @@ class LSTM(nn.Module):
         # mask is given in (t, num_envs)
         num_envs = x.shape[1]
         if hidden is None:
-            h = torch.zeros(1, num_envs, self.h_dim).to(x)
-            c = torch.zeros(1, num_envs, self.h_dim).to(x)
+            h = torch.zeros(1, num_envs, self.hidden_dim).to(x)
+            c = torch.zeros(1, num_envs, self.hidden_dim).to(x)
         else:
             h, c = hidden
         outs = []
@@ -58,6 +58,7 @@ class LSTM(nn.Module):
         h = h.unsqueeze(0)
         c = c.unsqueeze(0)
         outs = torch.cat(outs, 0)
+
         return outs, (h, c)
 
 

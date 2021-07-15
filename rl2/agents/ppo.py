@@ -155,37 +155,14 @@ class PPOModel(TorchModel):
 
 
 class PPOAgent(Agent):
-<<<<<<< HEAD
-    def __init__(self,
-                 model: TorchModel,
-                 train_interval: int = 128,
-                 num_epochs: int = 1,
-                 num_envs=1,
-                 buffer_cls: ReplayBuffer = TemporalMemory,
-                 buffer_kwargs: dict = None,
-                 batch_size: int = 128,
-                 val_coef: float = 0.5,
-                 action_low: np.array = None,
-                 action_high: np.ndarray = None,
-                 loss_func: Callable = loss_func,
-                 save_interval: int = int(1e5),
-                 update_after: int = 1,
-                 gamma: float = 0.99,
-                 lamda: float = 0.95,
-                 log_interval: int = int(1e3),
-                 use_gail=True,
-                 **kwargs):
-        # self.buffer = ReplayBuffer()
-        self.use_gail = True
-=======
     def __init__(
             self,
             model: TorchModel,
             train_interval: int = 0,
             num_epochs: int = 1,
-            num_envs=1,
+            num_envs: int = 1,
             buffer_cls: ReplayBuffer = TemporalMemory,
-            buffer_kwargs: dict = None,
+            buffer_kwargs: dict = {},
             batch_size: int = 128,
             val_coef: float = 0.5,
             action_low: np.array = None,
@@ -199,13 +176,6 @@ class PPOAgent(Agent):
             use_gail=False,
             **kwargs
     ):
-        self.use_gail = use_gail
->>>>>>> refactor with respect to gail
-        if self.use_gail is True:
-            self.discriminator = kwargs.pop('discriminator')
-            self.expert_trajs = kwargs.pop('expert_trajs')
-
-        # print(train_interval)
         super().__init__(
             model,
             train_interval=train_interval,
@@ -214,15 +184,17 @@ class PPOAgent(Agent):
             buffer_kwargs=buffer_kwargs,
             **kwargs
         )
-
         self.use_gail = use_gail
-        # TODO: some of these can be moved to base class
+        if self.use_gail:
+            self.discriminator = kwargs.pop('discriminator')
+            self.expert_trajs = kwargs.pop('expert_trajs')
+
         self.obs = None
-        self.num_envs = num_envs
-        if self.num_envs == 1:
-            self.done = False
-        else:
-            self.done = [False] * num_envs
+        # self.num_envs = num_envs
+        # if self.num_envs == 1:
+        #     self.done = False
+        # else:
+        #     self.done = [False] * num_envs
         self.gamma = gamma
         self.batch_size = batch_size
         self.update_after = 1
@@ -233,10 +205,12 @@ class PPOAgent(Agent):
         self.val_coef = val_coef
         self.lamda = lamda
 
-        # TODO: For rnn encoding. Should this be moved to base class?
-        self.model._init_hidden(self.done)
-        self.hidden = self.model.hidden
-        self.pre_hidden = self.hidden
+        """common"""
+
+        # # TODO: For rnn encoding. Should this be moved to base class?
+        # self.model._init_hidden(self.done)
+        # self.hidden = self.model.hidden
+        # self.pre_hidden = self.hidden
 
     def act(self, obs):
         action, info = self.model.act(obs, get_log_prob=True)
@@ -249,28 +223,11 @@ class PPOAgent(Agent):
 
         return action
 
-    def flatten(self, data):
-        ret = []
-        for i in data:
-            for j in i:
-                ret.append(j.flatten())
-
-        return ret
-
-    def fa(self, data):
-        ret = []
-        for i in data:
-            for j in i:
-                ret.append(j)
-        return ret
-
     def pack_data(self):
-        # import pdb; pdb.set_trace()
         flat_eobss = []
         flat_eacs = []
         for traj in self.expert_trajs:
             for datum in traj:
-                # print(datum)
                 obs, ac = datum[0], datum[1]
                 flat_eobss.append(np.asarray(obs).flatten())
                 flat_eacs.append(ac)
@@ -298,14 +255,12 @@ class PPOAgent(Agent):
         return edata, adata
 
     def _update_rew(self):
-        #####(TODO)
-        # import pdb; pdb.set_trace()
         s = np.array(self.buffer.state)
         t, b = s.shape[0], s.shape[1]
         a = np.array(self.buffer.action).flatten()
-        s_disc = torch.FloatTensor(s).to('cpu').view(t * b, -1)
+        s_disc = torch.FloatTensor(s).to(self.discriminator.device).view(t * b, -1)
         one_hots = np.eye(5)
-        a_disc = torch.FloatTensor(one_hots[a]).to('cpu')
+        a_disc = torch.FloatTensor(one_hots[a]).to(self.discriminator.device)
         input_disc = torch.cat([s_disc, a_disc], -1)
         with torch.no_grad():
             p = self.discriminator(input_disc).mean.squeeze()
@@ -313,70 +268,88 @@ class PPOAgent(Agent):
             new_rew = new_rew.cpu().numpy()
         self.buffer.reward = [r for r in new_rew]
 
-    def step(self, s, a, r, d, s_):
+    def train_at(self, curr_step):
+        return curr_step % self.train_interval == 0
+
+    def step(self, state, action, reward, done, next_state):
         self.curr_step += 1
-        self.collect(s, a, r, self.done, self.value, self.nlp)
-        self.done = d
+        self.collect(state, action, reward, self.done, self.value, self.nlp)
+        self.done = done
 
         if self.model.recurrent:
-            self.model._update_hidden(d, self.hidden)
+            self.model._update_hidden(done, self.hidden)
 
         info = {}
-        if self.curr_step % self.train_interval == 0:
+        if self.train_at(self.curr_step):
             if self.use_gail:
-                edata, adata = self.pack_data()
-                data = np.concatenate([edata, adata])
-                data = torch.FloatTensor(data).to('cpu')
-                output__ = self.discriminator(data).mean
-                output = torch.flatten(output__)
-
-                elabels = torch.ones(len(edata)).to('cpu')
-                alabels = torch.zeros(len(adata)).to('cpu')
-
-                labels = torch.cat([elabels, alabels])
-                loss = F.binary_cross_entropy_with_logits(output, labels)
-                self.discriminator.step(loss)
-
+                adata, data, edata = self.gail_data()
+                output = self.discriminator(data).mean
+                self.discriminate(adata, edata, output)
                 self._update_rew()
 
-            value = self.model.val(s_)
+            value = self.model.val(next_state)
             advs = general_advantage_estimation(
-                self.buffer.to_dict(), value, d, self.gamma, self.lamda
+                self.buffer.to_dict(), value, done, self.gamma, self.lamda
             )
             info = self.train(advs)
             self.buffer.reset()
+
             if self.model.recurrent:
-                self.pre_hidden = self.model.hidden
+                self.prev_hidden = self.model.hidden
 
         return info
+
+    def gail_data(self):
+        edata, adata = self.pack_data()
+        data = np.concatenate([edata, adata])
+        data = torch.FloatTensor(data).to(self.discriminator.device)
+        return adata, data, edata
+
+    def discriminate(self, adata, edata, output__):
+        output = torch.flatten(output__)
+        elabels = torch.ones(len(edata)).to(self.discriminator.device)
+        alabels = torch.zeros(len(adata)).to(self.discriminator.device)
+        labels = torch.cat([elabels, alabels])
+        loss = F.binary_cross_entropy_with_logits(output, labels)
+        self.discriminator.step(loss)
 
     def train(self, advs, **kwargs):
         losses = []
         for _ in range(self.num_epochs):
-            num_minibatches = (self.buffer.curr_size * self.num_envs
-                               // self.batch_size)
+            num_minibatches = (
+                    self.buffer.curr_size * self.num_envs // self.batch_size
+            )
             self.buffer.shuffle()
             for mb_idx in range(num_minibatches):
-                batch_data = self.buffer.sample(
-                    self.batch_size, return_idx=True,
-                    recurrent=self.model.recurrent)
-                idx, sub_idx = batch_data[-1]
-                batch_data = (*batch_data[:-1],
-                              np.expand_dims(advs[idx, sub_idx], axis=1))
+                batch_data, sub_idx = self.sample_batch_data(advs)
+
                 if self.model.recurrent:
                     env_idx = sub_idx.reshape(self.buffer.max_size, -1)[0]
-                    hidden = tuple([ph[:, env_idx] for ph in self.pre_hidden])
+                    hidden = tuple([ph[:, env_idx] for ph in self.prev_hidden])
                 else:
                     hidden = None
+
                 loss = self.loss_func(batch_data, self.model, hidden=hidden)
                 self.model.policy.step(loss, retain_graph=True)
                 self.model.value.step(loss)
                 losses.append(loss.item())
+
         info = {
             'Loss/All': sum(losses) / (len(losses) + 1e-8)
         }
+
         return info
 
+    def sample_batch_data(self, advs):
+        batch_data = self.buffer.sample(
+            self.batch_size, return_idx=True,
+            recurrent=self.model.recurrent)
+        idx, sub_idx = batch_data[-1]
+        batch_data = (
+            *batch_data[:-1],
+            np.expand_dims(advs[idx, sub_idx], axis=1)
+        )
+        return batch_data, sub_idx
+
     def collect(self, *args):
-        ##########
         self.buffer.push(*args)

@@ -1,20 +1,17 @@
+import logging
 import os
 import pickle
+import signal
+import time
+from collections import deque
+from datetime import datetime
+from pathlib import Path
+from typing import Tuple
 
 import numpy as np
-from pathlib import Path
-from collections import deque
 
-import logging
+
 # from logging import getLogger, Logger
-
-from rl2.agents.base import Agent
-import signal
-from datetime import datetime
-
-from rl2.utils import EasyDict
-
-import time
 
 
 class Timer:
@@ -44,9 +41,8 @@ class RolloutWorker:
             num_envs=1,
             train_config=None,
             render_interval=0,
-            save_model=False,
-            save_erange=None,
             save_interval=None,
+            save_erange: Tuple[int, int] = None,  # range of episodes
             **kwargs
     ):
         self.env = env
@@ -82,15 +78,8 @@ class RolloutWorker:
         self.save_erange = save_erange
         self.curr_trajectory = []
         self.trajectories = []
-        # self.save_trajectory = False
 
         self.saving_model = True
-
-        # TODO: for now
-        # logger_name = __name__
-        # self.logger = Logger(logger_name)
-        # print(self.logger)
-        # self.logger = getLogger(logger_name)
 
     def run(self):
         raise NotImplementedError
@@ -98,8 +87,7 @@ class RolloutWorker:
     def __enter__(self):
         self.start_dt = time.clock()
 
-        # TODO: [feature] try to attach ipython session
-        if self.saving_model is True:
+        if self.saving_model:
             signal.signal(signal.SIGINT, lambda sig, frame: self.save_model())
 
         return self
@@ -107,7 +95,7 @@ class RolloutWorker:
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.end_dt = time.clock()
 
-        if self.saving_model is True:
+        if self.saving_model:
             try:
                 self.save_model()
             except Exception as e:
@@ -122,7 +110,7 @@ class RolloutWorker:
 
     def set_mode(self, train=True):
         # for torch currently
-        if train is True:
+        if train:
             self.train_mode = True
             # self.agent.model.train()
         else:
@@ -166,27 +154,27 @@ class RolloutWorker:
 
     def rollout(self):
         action = self.agent.act(self.obs)
-        if self.in_erange() is True:
+        if self.in_erange():
             # S_t, A_t
             self.curr_trajectory.append((self.obs, action))
 
         if hasattr(action, 'shape'):
             if len(action.shape) == 2 and action.shape[0] == 1:
                 action = action.squeeze(0)
-        obs, rew, done, info = self.env.step(action)
+        obs, reward, done, env_info = self.env.step(action)
 
-        if self.train_mode is True:
-            info_a = self.agent.step(self.obs, action, rew, done, obs)
-            if info:
-                if isinstance(info, dict):
-                    info = {**info, **info_a}
-                elif isinstance(info, list) or isinstance(info, tuple):
-                    info = {**info_a}
+        if self.train_mode:
+            agent_info = self.agent.step(self.obs, action, reward, done, obs)
+            if env_info:
+                if isinstance(env_info, dict):
+                    env_info = {**env_info, **agent_info}
+                elif isinstance(env_info, list) or isinstance(env_info, tuple):
+                    env_info = {**agent_info}
             else:
-                info = {**info_a}
+                env_info = {**agent_info}
 
         self.num_steps += self.num_envs
-        self.episode_score = self.episode_score + np.array(rew)
+        self.episode_score = self.episode_score + np.array(reward)
         self.episode_steps = self.episode_steps + np.ones_like(done, np.int)
 
         done = np.asarray(done)
@@ -207,7 +195,7 @@ class RolloutWorker:
                 self.episode_length.append(self.episode_steps)
                 self.episode_steps = 0
 
-                if self.in_erange() is True:
+                if self.in_erange():
                     self.trajectories.append(self.curr_trajectory)
                     self.curr_trajectory = []
 
@@ -216,7 +204,7 @@ class RolloutWorker:
         self.obs = obs
         results = None
 
-        return done, info, results
+        return done, env_info, results
 
     def in_erange(self):
         if self.save_erange is None:
@@ -255,19 +243,19 @@ class MaxStepWorker(RolloutWorker):
 
             self.worker_log(done)
 
-            if self.in_save_interval() is True:
+            if self.save_at():
                 self.save_model()
 
-    def in_save_interval(self):
+    def save_at(self):
         return (self.save_interval > 0) and (
                 (self.num_steps % self.save_interval) < self.num_envs)
 
     def save_model(self):
-
         if hasattr(self, 'logger'):
             save_dir = getattr(self.logger, 'log_dir')
         else:
             save_dir = os.getcwd()
+
         self.save_model(save_dir)
 
     def worker_log(self, done):

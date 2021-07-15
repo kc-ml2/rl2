@@ -1,14 +1,11 @@
 import pickle
 from logging import Logger
 from pprint import pprint
-from tempfile import TemporaryFile, NamedTemporaryFile
+from tempfile import TemporaryFile
 
-import numpy as np
-import pytest
 import gym
 from torch import nn
 
-from rl2.agents.base import Agent
 from rl2.workers import RolloutWorker
 
 logger = Logger(__name__)
@@ -34,7 +31,7 @@ def test_agent_cls(action_space):
             logger.info(action)
             return action_space.sample()
 
-        def collect(self, s, a, r, d, s_):
+        def collect(self, state, action, reward, done, next_state):
             pass
 
         def train(self):
@@ -50,8 +47,6 @@ def test_model_cls():
     class RandomModel(nn.Module):
         def __init__(self):
             super(RandomModel, self).__init__()
-
-        # def forward(self, x):
 
     return RandomModel
 

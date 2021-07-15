@@ -1,6 +1,6 @@
 import os
 import json
-from easydict import EasyDict
+from rl2.utils import EasyDict
 
 from marlenv.wrappers import make_snake
 

@@ -12,7 +12,7 @@ import gym
 import marlenv
 from marlenv.wrappers import SingleAgent
 import os
-from easydict import EasyDict
+from rl2.utils import EasyDict
 from rl2.agents.configs import DEFAULT_DDPG_CONFIG
 from rl2.agents.ddpg import DDPGAgent, DDPGModel
 from rl2.workers.base import EpisodicWorker

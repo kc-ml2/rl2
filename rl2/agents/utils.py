@@ -1,9 +1,13 @@
 import numpy as np
 
 
-
-def general_advantage_estimation(trajectories: dict, value_p, done_p,
-                                 gamma, lamda):
+def general_advantage_estimation(
+        trajectories: dict,
+        value_p,
+        done_p,
+        gamma,
+        lamda
+):
     # General Advantage Estimation
     gae = 0
     value_p = np.array([value_p]).squeeze(0)
@@ -49,6 +53,6 @@ class LinearDecay:
         self.decay_step = decay_step
 
     def __call__(self, curr_step):
-        alpha = min(curr_step/self.decay_step, 1)
-        out = ((1-alpha)*self.start) + (alpha*self.end)
+        alpha = min(curr_step / self.decay_step, 1)
+        out = ((1 - alpha) * self.start) + (alpha * self.end)
         return out

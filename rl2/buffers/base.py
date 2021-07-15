@@ -7,14 +7,17 @@ from collections import namedtuple
 
 
 class ReplayBuffer:
-    def __init__(self, size=1,
-                 elements={
-                     'state': ((4,), np.float32),
-                     'action': ((2,), np.float32),
-                     'reward': ((1,), np.float32),
-                     'done': ((1,), np.uint8),
-                     'state_p': ((4,), np.float32),
-                 }):
+    def __init__(
+            self,
+            size=1,
+            elements={
+                'state': ((4,), np.float32),
+                'action': ((2,), np.float32),
+                'reward': ((1,), np.float32),
+                'done': ((1,), np.uint8),
+                'next_state': ((4,), np.float32),
+            }
+    ):
         self.max_size = int(size)
         if isinstance(elements, dict):
             self.keys = elements.keys()
@@ -69,11 +72,12 @@ class ReplayBuffer:
             raise ValueError(f'buffer max size != {key} length, '
                              '{self.max_size} != {len(value)}')
     '''
+
     def to_np(self):
-    # tmp
-         l = [getattr(self, key)[:self.curr_size] for key in self.keys]
-         return np.asarray(l)
-          
+        # tmp
+        l = [getattr(self, key)[:self.curr_size] for key in self.keys]
+        return np.asarray(l)
+
     def to_dict(self):
         d = {}
         for key in self.keys:
@@ -93,12 +97,13 @@ class ReplayBuffer:
 
     @property
     def is_full(self):
-        return (self.curr_size == self.max_size)
+        return self.curr_size == self.max_size
 
     def push(self, **kwargs):
         for key in self.keys:
             assert key in kwargs.keys()
             getattr(self, key)[self.curr_idx] = kwargs[key]
+
         self.curr_size = min(self.curr_size + 1, self.max_size)
         self.curr_idx = (self.curr_idx + 1) % self.max_size
 
@@ -131,33 +136,39 @@ class ReplayBuffer:
 
 
 class ExperienceReplay(ReplayBuffer):
-    def __init__(self,
-                 size=1,
-                 state_shape=(1,),
-                 action_shape=(1,),
-                 state_type=np.float32,
-                 action_type=np.float32):
+    def __init__(
+            self,
+            size=1,
+            state_shape=(1,),
+            action_shape=(1,),
+            state_type=np.float32,
+            action_type=np.float32
+    ):
         super().__init__(
             size, elements={
                 'state': (state_shape, state_type),
                 'action': (action_shape, action_type),
                 'reward': ((1,), np.float32),
                 'done': ((1,), np.uint8),
-                'state_': (state_shape, state_type)
+                'next_state': (state_shape, state_type)
             }
         )
 
     def reset(self):
         super().reset()
 
-    def push(self, s, a, r, d, s_):
-        super().push(state=s, action=a, reward=r, done=d, state_=s_)
+    def push(self, state, action, reward, done, next_state):
+        super().push(
+            state=state, action=action, reward=reward, done=done, next_state=next_state
+        )
 
     def sample(self, num, idx=None, return_idx=False, contiguous=1):
-        transitions = super().sample(num,
-                                     idx=idx,
-                                     return_idx=return_idx,
-                                     contiguous=contiguous)
+        transitions = super().sample(
+            num,
+            idx=idx,
+            return_idx=return_idx,
+            contiguous=contiguous
+        )
         if contiguous > 1:
             state = transitions.state.reshape(
                 contiguous, -1, *transitions.state.shape[1:])
@@ -179,25 +190,23 @@ class ExperienceReplay(ReplayBuffer):
 class TemporalMemory(ReplayBuffer):
     def __init__(self, size=1, num_envs=1):
         super().__init__(
-            size, elements=[
-                'state',
-                'action',
-                'reward',
-                'done',
-                'value',
-                'nlp'
-            ]
+            size,
+            elements=['state', 'action', 'reward', 'done', 'value', 'nlp']
         )
         self.num_envs = num_envs
         self.shuffle()
 
     def shuffle(self):
-        self.time_idx_queue = np.random.permutation(self.max_size * self.num_envs)
+        self.time_idx_queue = np.random.permutation(
+            self.max_size * self.num_envs
+        )
         self.env_idx_queue = np.random.permutation(self.num_envs)
         self.start = 0
 
-    def push(self, s, a, r, d, v, nlp):
-        super().push(state=s, action=a, reward=r, done=d, value=v, nlp=nlp)
+    def push(self, state, action, reward, done, value, nlp):
+        super().push(
+            state=state, action=action, reward=reward, done=done, value=value, nlp=nlp
+        )
 
     def sample(self, num, idx=None, return_idx=False, recurrent=False):
         env_sample_size = 1

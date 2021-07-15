@@ -1,17 +1,13 @@
-import os
 import json
-from easydict import EasyDict
+import os
 
-import marlenv
 from marlenv.wrappers import make_snake
 
-from rl2.agents.dqn import DQNAgent, DQNModel
 from rl2.agents.configs import DEFAULT_DQN_CONFIG
-from rl2.workers.base import EpisodicWorker, MaxStepWorker
+from rl2.agents.dqn import DQNAgent, DQNModel
 from rl2.examples.temp_logger import Logger
-
-# FIXME: Remove later
-# os.environ['CUDA_VISIBLE_DEVICES'] = '1'
+from rl2.utils import EasyDict
+from rl2.workers.base import EpisodicWorker, MaxStepWorker
 
 
 def dqn(obs_shape, ac_shape, config, props, load_dir=None):

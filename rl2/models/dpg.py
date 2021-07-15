@@ -4,7 +4,7 @@ from rl2.models.base import PolicyBasedModel
 
 
 class DPGModel(PolicyBasedModel):
-    def __init__(self, input_shape, **kwargs):
+    def __init__(self, input_shape, update_target):
         pass
 
     def infer(self) -> Distribution:

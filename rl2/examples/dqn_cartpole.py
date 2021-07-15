@@ -1,4 +1,4 @@
-from easydict import EasyDict
+from rl2.utils import EasyDict
 import gym
 from rl2.agents.dqn import DQNModel, DQNAgent
 from rl2.workers import MaxStepWorker

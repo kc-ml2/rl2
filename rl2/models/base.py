@@ -1,7 +1,6 @@
 import importlib
 from types import FunctionType
 from typing import Iterable
-from abc import abstractmethod
 import itertools
 import copy
 
@@ -9,11 +8,13 @@ import numpy as np
 
 import torch
 from torch import nn
-from torch.optim import Optimizer
+
 import torch.nn.functional as F
+from torch.optim.optimizer import Optimizer
 
 from rl2.networks.core import MLP, ConvEnc, LSTM
 import rl2.distributions as dist
+
 """
 interface that can handle most of the recent algorithms. (PG, Qlearning)
 but interface itself can serve as vanilla algorithm
@@ -29,41 +30,43 @@ class TorchModel(nn.Module):
     inherits nn.Module to utilize its functionalities, e.g. model.state_dict()
     child classes must init TorchModel for torch utilities
     """
-
     def __init__(
             self,
             observation_shape: tuple,
             action_shape: tuple,
             device: str = None,
+            recurrent: bool = False,
+            *args,
             **kwargs
     ):
         super().__init__()
         self.observation_shape = observation_shape
         self.action_shape = action_shape
-        available_device = 'cuda' if torch.cuda.is_available() else 'cpu'
-        self.device = device if device else available_device
+        self.recurrent = recurrent
 
-    @abstractmethod
+        if device:
+            self.device = device
+        else:
+            self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
     def step(self, loss):
         """
         1 single update of neural nets
         """
-        pass
+        raise NotImplementedError
 
-    @abstractmethod
     def save(self):
         """
         custom save logic
         e.g. some part of Model may use xgboost
         """
-        pass
+        raise NotImplementedError
 
-    @abstractmethod
     def load(self):
         """
         custom load logic
         """
-        pass
+        raise NotImplementedError
 
     @staticmethod
     def init_params(net, val=np.sqrt(2)):
@@ -82,8 +85,11 @@ class TorchModel(nn.Module):
             p_t.data.copy_((1 - tau) * p.data + tau * p_t.data)
 
     @staticmethod
-    def get_optimizer_by_name(modules: Iterable, optim_name: str,
-                              **optim_kwargs) -> Optimizer:
+    def get_optimizer_by_name(
+            modules: Iterable,
+            optim_name: str,
+            **optim_kwargs
+    ) -> Optimizer:
         params = [module.parameters() for module in modules]
         mod = importlib.import_module('.'.join(optim_name.split('.')[:-1]))
         pkg = optim_name.split('.')[-1]
@@ -128,15 +134,20 @@ class TorchModel(nn.Module):
         hidden = new_hidden[0]
         cell = new_hidden[1]
         done_idx = np.where(np.asarray(dones) == 1)[0]
+
         hidden[0, done_idx, :] = torch.zeros(
-            len(done_idx), self.encoded_dim).to(self.device)
+            len(done_idx), self.encoded_dim
+        ).to(self.device)
+
         cell[0, done_idx, :] = torch.zeros(
-            len(done_idx), self.encoded_dim).to(self.device)
+            len(done_idx), self.encoded_dim
+        ).to(self.device)
+
         self.hidden = (hidden, cell)
 
     def _infer_from_numpy(self, net, obs, *args):
         obs = torch.from_numpy(obs).float().to(self.device)
-        args = [torch.from_numpy(a).float().ro(self.device) for a in args]
+        args = [torch.from_numpy(arg).float().to(self.device) for arg in args]
         hidden = None
         with torch.no_grad():
             if self.recurrent:
@@ -210,27 +221,30 @@ class BaseHead(nn.Module):
 
 
 class BranchModel(TorchModel):
-    def __init__(self,
-                 observation_shape,
-                 action_shape,
-                 encoder=None,
-                 encoded_dim=64,
-                 head=None,
-                 optimizer='torch.optim.Adam',
-                 lr=1e-4,
-                 grad_clip=1.0,
-                 make_target=False,
-                 discrete=True,
-                 deterministic=True,
-                 reorder=False,
-                 flatten=False,
-                 default=True,
-                 head_depth=1,
-                 recurrent=False,
-                 **kwargs):
+    def __init__(
+            self,
+            observation_shape,
+            action_shape,
+            encoder=None,
+            encoded_dim=64,
+            head=None,
+            optimizer='torch.optim.Adam',
+            lr=1e-4,
+            grad_clip=1.0,
+            make_target=False,
+            discrete=True,
+            deterministic=True,
+            reorder=False,
+            flatten=False,
+            default=True,
+            head_depth=1,
+            recurrent=False,
+            **kwargs
+    ):
         device = kwargs.get('device')
-        super().__init__(observation_shape, action_shape,
-                         device)
+        super().__init__(
+            observation_shape, action_shape, device
+        )
         optim_args = kwargs.get('optim_args', {})
         high = kwargs.get('high', 1)
 
@@ -334,14 +348,15 @@ class BranchModel(TorchModel):
                 mod.reset_memory()
                 mod.use_memory = False
 
-    def update_trg(self, alpha=0.0):
+    def update_target(self, alpha=0.0):
         self.polyak_update(self.encoder, self.encoder_target, alpha)
         self.polyak_update(self.head, self.head_target, alpha)
 
     def _handle_obs_shape(self, observation):
         if len(observation.shape) == len(self.observation_shape):
             observation = observation.unsqueeze(0)
-        if self.recurrent and len(observation.shape) == len(self.observation_shape) + 1:
+        if self.recurrent and len(observation.shape) == len(
+                self.observation_shape) + 1:
             observation = observation.unsqueeze(0)
 
         return observation

@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
-import os
 import json
-from easydict import EasyDict
-import numpy as np
+import os
 
+import numpy as np
 from marlenv.wrappers import make_snake
 
-from rl2.examples.temp_logger import Logger
 from rl2.agents.ppo import PPOModel, PPOAgent
-from rl2.workers import MaxStepWorker, EpisodicWorker
+from rl2.examples.temp_logger import Logger
 from rl2.models.base import BranchModel
-import numpy as np
+from rl2.utils import EasyDict
+from rl2.workers import MaxStepWorker, EpisodicWorker
 
 expert_trajs = np.load(f'/home/anthony/expert_trajs.npy', allow_pickle=True)
 expert_trajs = expert_trajs[:8]

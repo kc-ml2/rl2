@@ -1,4 +1,4 @@
-from typing import Union, List
+from typing import Union, List, Tuple
 import numpy as np
 
 from rl2.models.tf.base import TFModel
@@ -15,27 +15,38 @@ class Agent:
 
     def __init__(
             self,
-            # model must be instantiated and initialized before passing as argument
             model: Union[TorchModel, TFModel],
-            # device,
             buffer_cls=None,
-            buffer_kwargs=None,
-            train_interval=0,
-            num_epochs=0,
+            buffer_kwargs={},
+            num_epochs: int = 0,
+            num_envs: int = 1,
+            *args,
+            **kwargs
     ):
-        self.curr_step = 0
-        self.train_interval = train_interval
-        print(train_interval)
-        print(self.train_interval)
-
-        # """
         self.model = model
 
+        self.curr_step = 0
+        self.tasks: List[Tuple[callable, callable]] = []
+
+        self.train_interval = kwargs.pop('train_interval', 128)
+        train_at = lambda x: x % self.train_interval == 0
+        self.eval_interval = kwargs.pop('eval_interval', 128)
+        eval_at = lambda x: x % self.eval_interval == 0
+
         self.num_epochs = num_epochs
-        # self.device = device
         if self.train_interval > 0:
             self.buffer = buffer_cls(**buffer_kwargs)
-        self._hook = None
+
+        self.num_envs = num_envs
+        if self.num_envs == 1:
+            self.done = False
+        else:
+            self.done = [False] * num_envs
+        self.obs = None
+
+        if self.model.recurrent:
+            self.model._init_hidden(self.done)
+            self.prev_hidden = self.hidden = self.model.hidden
 
     @property
     def hook(self):
@@ -50,13 +61,13 @@ class Agent:
         print(f'from now, {self._hook}')
         # self._hook.add_endpoint(endpoint='/act', handler=self.act)
 
-    def act(self) -> np.ndarray:
+    def act(self):
         """
         act returns its running env's action space shaped/typed action
         """
         raise NotImplementedError
 
-    def collect(self, s, a, r, d, s_):
+    def collect(self, state, action, reward, done, next_state):
         """
         collects state and store in buffer
         """
@@ -68,8 +79,16 @@ class Agent:
         """
         raise NotImplementedError
 
-
     def step(self):
+        """
+        result = {}
+        for exec_at, task in self.tasks:
+            if exec_at(self.curr_step):
+                task_result = task()
+                result = {**result, **task_result}
+
+        return result
+        """
         raise NotImplementedError
 
 
@@ -83,31 +102,28 @@ class MAgent:
 
     def __init__(
             self,
-            # model must be instantiated and initialized before passing as argument
             models: List[Union[TorchModel, TFModel]],
             train_interval,
             num_epochs,
-            # device,
             buffer_cls,
             buffer_kwargs,
     ):
         self.curr_step = 0
         self.train_interval = train_interval
 
-        # """
         self.models = models
 
         self.num_epochs = num_epochs
-        # self.device = device
 
         num_agents = len(models)
         self.buffers = []
         for model in self.models:
-            self.buffers.append(buffer_cls(
+            buffer = buffer_cls(
                 size=buffer_kwargs['size'],
                 state_shape=model.observation_shape,
                 action_shape=model.action_shape
-            ))
+            )
+            self.buffers.append(buffer)
         self._hook = None
 
     @property
@@ -123,19 +139,19 @@ class MAgent:
         print(f'from now, {self._hook}')
         # self._hook.add_endpoint(endpoint='/act', handler=self.act)
 
-    def act(self) -> np.ndarray:
+    def act(self):
         """
         act returns its running env's action space shaped/typed action
         """
         raise NotImplementedError
 
-    def collect(self, s, a, r, d, s_) -> 'Maybe Some statistics?':
+    def collect(self, state, action, reward, done, next_state):
         """
         collects state and store in buffer
         """
         raise NotImplementedError
 
-    def train(self) -> 'Maybe Train Result?':
+    def train(self):
         """
         train it's model by calling model.step num_epochs times
         """

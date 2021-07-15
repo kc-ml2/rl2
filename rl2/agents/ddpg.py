@@ -24,7 +24,7 @@ def loss_func_ac(data, model, **kwargs):
 
 
 def loss_func_cr(data, model, **kwargs):
-    s, a, r, d, s_ = tuple(
+    state, action, reward, done, next_state = tuple(
         map(lambda x: torch.from_numpy(x).float().to(model.device), data)
     )
     with torch.no_grad():
@@ -32,7 +32,7 @@ def loss_func_cr(data, model, **kwargs):
         if not model.discrete:
             a_trg = torch.tanh(a_trg)
         v_trg = model.q.forward_trg(s_, a_trg).mean
-        bellman_trg = r + kwargs['gamma'] * v_trg * (1-d)
+        bellman_trg = r + kwargs['gamma'] * v_trg * (1 - d)
 
     q = model.q(s, a).mean
     loss = F.smooth_l1_loss(q, bellman_trg)
@@ -76,24 +76,26 @@ class DDPGModel(TorchModel):
     (same one as original paper)
     """
 
-    def __init__(self,
-                 observation_shape,
-                 action_shape,
-                 actor: torch.nn.Module = None,
-                 critic: torch.nn.Module = None,
-                 encoder: torch.nn.Module = None,
-                 encoded_dim: int = 64,
-                 optim_ac: str = 'torch.optim.Adam',
-                 optim_cr: str = 'torch.optim.Adam',
-                 lr_ac: float = 1e-4,
-                 lr_cr: float = 1e-4,
-                 grad_clip: float = 1e-2,
-                 polyak: float = 0.995,
-                 discrete: bool = False,
-                 flatten: bool = False,
-                 reorder: bool = False,
-                 recurrent: bool = False,
-                 **kwargs):
+    def __init__(
+            self,
+            observation_shape,
+            action_shape,
+            actor: torch.nn.Module = None,
+            critic: torch.nn.Module = None,
+            encoder: torch.nn.Module = None,
+            encoded_dim: int = 64,
+            optim_ac: str = 'torch.optim.Adam',
+            optim_cr: str = 'torch.optim.Adam',
+            lr_ac: float = 1e-4,
+            lr_cr: float = 1e-4,
+            grad_clip: float = 1e-2,
+            polyak: float = 0.995,
+            discrete: bool = False,
+            flatten: bool = False,
+            reorder: bool = False,
+            recurrent: bool = False,
+            **kwargs
+    ):
 
         super().__init__(observation_shape, action_shape, **kwargs)
         if hasattr(encoder, 'output_shape'):
@@ -114,35 +116,40 @@ class DDPGModel(TorchModel):
         self.polyak = polyak
         self.is_save = kwargs.get('is_save', False)
 
-        self.mu = BranchModel(observation_shape, action_shape,
-                              encoded_dim=encoded_dim,
-                              optimizer=optim_ac,
-                              lr=lr_ac,
-                              grad_clip=grad_clip,
-                              make_target=True,
-                              discrete=discrete,
-                              deterministic=True,
-                              recurrent=recurrent,
-                              reorder=reorder,
-                              flatten=flatten,
-                              default=False,
-                              head_depth=2,
-                              **kwargs)
+        self.mu = BranchModel(
+            observation_shape,
+            action_shape,
+            encoded_dim=encoded_dim,
+            optimizer=optim_ac,
+            lr=lr_ac,
+            grad_clip=grad_clip,
+            make_target=True,
+            discrete=discrete,
+            deterministic=True,
+            recurrent=recurrent,
+            reorder=reorder,
+            flatten=flatten,
+            default=False,
+            head_depth=2,
+            **kwargs
+        )
 
-        self.q = InjectiveBranchModel(observation_shape, (1,), action_shape,
-                                      encoded_dim=encoded_dim,
-                                      optimizer=optim_cr,
-                                      lr=lr_cr,
-                                      grad_clip=grad_clip,
-                                      make_target=True,
-                                      discrete=False,
-                                      deterministic=True,
-                                      recurrent=recurrent,
-                                      reorder=reorder,
-                                      flatten=flatten,
-                                      default=False,
-                                      head_depth=2,
-                                      **kwargs)
+        self.q = InjectiveBranchModel(
+            observation_shape, (1,), action_shape,
+            encoded_dim=encoded_dim,
+            optimizer=optim_cr,
+            lr=lr_cr,
+            grad_clip=grad_clip,
+            make_target=True,
+            discrete=False,
+            deterministic=True,
+            recurrent=recurrent,
+            reorder=reorder,
+            flatten=flatten,
+            default=False,
+            head_depth=2,
+            **kwargs
+        )
         self.init_params(self.mu)
         self.init_params(self.q)
 
@@ -185,9 +192,9 @@ class DDPGModel(TorchModel):
 
         return value
 
-    def update_trg(self):
-        self.mu.update_trg(alpha=self.polyak)
-        self.q.update_trg(alpha=self.polyak)
+    def update_target(self):
+        self.mu.update_target(alpha=self.polyak)
+        self.q.update_target(alpha=self.polyak)
 
     def save(self, save_dir):
         # torch.save(self.enc_ac.state_dict(),
@@ -215,27 +222,29 @@ class DDPGModel(TorchModel):
 
 
 class DDPGAgent(Agent):
-    def __init__(self,
-                 model: DDPGModel,
-                 update_interval: int = 1000,
-                 train_interval: int = 1,
-                 num_epochs: int = 1,
-                 buffer_cls: ReplayBuffer = ExperienceReplay,
-                 buffer_size: int = int(1e6),
-                 buffer_kwargs: dict = None,
-                 batch_size: int = 128,
-                 explore: bool = True,
-                 action_low: np.ndarray = None,
-                 action_high: np.ndarray = None,
-                 loss_func_ac: Callable = loss_func_ac,
-                 loss_func_cr: Callable = loss_func_cr,
-                 save_interval: int = int(1e6),
-                 eps: float = 0.1,
-                 gamma: float = 0.99,
-                 log_interval: int = int(1e3),
-                 train_after: int = int(1e3),
-                 update_after: int = int(1e3),
-                 **kwargs):
+    def __init__(
+            self,
+            model: DDPGModel,
+            update_interval: int = 1000,
+            train_interval: int = 1,
+            num_epochs: int = 1,
+            buffer_cls: ReplayBuffer = ExperienceReplay,
+            buffer_size: int = int(1e6),
+            buffer_kwargs: dict = {},
+            batch_size: int = 128,
+            explore: bool = True,
+            action_low: np.ndarray = None,
+            action_high: np.ndarray = None,
+            loss_func_ac: Callable = loss_func_ac,
+            loss_func_cr: Callable = loss_func_cr,
+            save_interval: int = int(1e6),
+            eps: float = 0.1,
+            gamma: float = 0.99,
+            log_interval: int = int(1e3),
+            train_after: int = int(1e3),
+            update_after: int = int(1e3),
+            **kwargs
+    ):
         if loss_func_cr is None:
             self.loss_func_cr = loss_func_cr
         if loss_func_ac is None:
@@ -244,15 +253,19 @@ class DDPGAgent(Agent):
 
         self.buffer_size = buffer_size
         if buffer_kwargs is None:
-            buffer_kwargs = {'size': self.buffer_size,
-                             'state_shape': model.observation_shape,
-                             'action_shape': model.action_shape}
+            buffer_kwargs = {
+                'size': self.buffer_size,
+                'state_shape': model.observation_shape,
+                'action_shape': model.action_shape
+            }
 
-        super().__init__(model=model,
-                         train_interval=train_interval,
-                         num_epochs=num_epochs,
-                         buffer_cls=buffer_cls,
-                         buffer_kwargs=buffer_kwargs)
+        super().__init__(
+            model=model,
+            train_interval=train_interval,
+            num_epochs=num_epochs,
+            buffer_cls=buffer_cls,
+            buffer_kwargs=buffer_kwargs
+        )
 
         # Set intervals
         self.train_interval = train_interval
@@ -279,6 +292,9 @@ class DDPGAgent(Agent):
 
         # For recurrent intermediate representation
         self.done = False
+
+        """common"""
+
         self.model._init_hidden(self.done)
         self.hidden = self.model.hidden
         self.pre_hidden = self.hidden
@@ -304,25 +320,40 @@ class DDPGAgent(Agent):
 
         return action
 
-    def step(self, s, a, r, d, s_):
+    def step(self, state, action, reward, done, next_state):
         self.curr_step += 1
         if self.model.discrete:
-            a = self.action_param
-        self.collect(s, a, r, d, s_)
+            action = self.action_param
+        self.collect(state, action, reward, done, next_state)
+
         info = {}
-        if (self.curr_step % self.train_interval == 0 and
-                self.curr_step > self.train_after):
-            info = self.train()
-        if (self.curr_step % self.update_interval == 0 and
-                self.curr_step > self.update_after):
-            self.model.update_trg()
-        if self.curr_step % self.save_interval == 0 and self.model.is_save:
+        if self.train_at():
+            res = self.train()
+            info.update(res)
+
+        if self.update_at():
+            self.model.update_target()
+
+        if self.save_at():
             save_dir = os.path.join(
-                self.log_dir, f'ckpt/{int(self.curr_step/1000)}k')
+                self.log_dir,
+                f'ckpt/{int(self.curr_step / 1000)}k'
+            )
             Path(save_dir).mkdir(parents=True, exist_ok=True)
             self.model.save(save_dir)
 
         return info
+
+    def save_at(self):
+        return self.curr_step % self.save_interval == 0 and self.model.is_save
+
+    def update_at(self):
+        return (self.curr_step % self.update_interval == 0 and
+                self.curr_step > self.update_after)
+
+    def train_at(self):
+        return (self.curr_step % self.train_interval == 0 and
+                self.curr_step > self.train_after)
 
     def train(self):
         for _ in range(self.num_epochs):
@@ -342,7 +373,7 @@ class DDPGAgent(Agent):
 
         return info
 
-    def collect(self, s, a, r, d, s_):
+    def collect(self, state, action, reward, done, next_state):
         # if self.model.discrete:
         #     a = np.eye(self.model.action_shape[0])[a]
-        self.buffer.push(s, a, r, d, s_)
+        self.buffer.push(state, action, reward, done, next_state)

@@ -11,7 +11,7 @@ from rl2.agents.utils import LinearDecay
 
 
 def loss_func(data, model, hidden=None, **kwargs):
-    s, a, r, d, s_ = tuple(
+    state, action, reward, done, next_state = tuple(
         map(lambda x: torch.from_numpy(x).float().to(model.device), data)
     )
     done_mask = copy.deepcopy(d)
@@ -42,6 +42,7 @@ class DQNModel(TorchModel):
     predefined model
     (same one as original paper)
     """
+
     def __init__(self,
                  observation_shape,
                  action_shape,
@@ -125,8 +126,8 @@ class DQNModel(TorchModel):
 
         return values
 
-    def update_trg(self):
-        self.q.update_trg(alpha=self.polyak)
+    def update_target(self):
+        self.q.update_target(alpha=self.polyak)
 
     def save(self, save_dir):
         torch.save(self.state_dict(),
@@ -139,39 +140,45 @@ class DQNModel(TorchModel):
 
 
 class DQNAgent(Agent):
-    def __init__(self,
-                 model: DQNModel,
-                 update_interval: int = 10000,
-                 train_interval: int = 1,
-                 num_epochs: int = 1,
-                 buffer_cls: Type[ReplayBuffer] = ExperienceReplay,
-                 buffer_size: int = int(1e6),
-                 buffer_kwargs: dict = None,
-                 batch_size: int = 32,
-                 explore: bool = True,
-                 loss_func: Callable = loss_func,
-                 save_interval: int = int(1e5),
-                 eps: float = 0.1,
-                 decay_step: int = int(1e6),
-                 gamma: float = 0.99,
-                 log_interval: int = int(1e3),
-                 train_after: int = int(1e3),
-                 update_after: int = int(1e3),
-                 **kwargs):
+    def __init__(
+            self,
+            model: DQNModel,
+            update_interval: int = 10000,
+            train_interval: int = 1,
+            num_epochs: int = 1,
+            buffer_cls: Type[ReplayBuffer] = ExperienceReplay,
+            buffer_size: int = int(1e6),
+            buffer_kwargs: dict = {},
+            batch_size: int = 32,
+            explore: bool = True,
+            loss_func: Callable = loss_func,
+            save_interval: int = int(1e5),
+            eps: float = 0.1,
+            decay_step: int = int(1e6),
+            gamma: float = 0.99,
+            log_interval: int = int(1e3),
+            train_after: int = int(1e3),
+            update_after: int = int(1e3),
+            **kwargs
+    ):
         if loss_func is None:
             self.loss_func = loss_func
 
         self.buffer_size = buffer_size
         if buffer_kwargs is None:
-            buffer_kwargs = {'size': self.buffer_size,
-                             'state_shape': model.observation_shape,
-                             'action_shape': model.action_shape}
+            buffer_kwargs = {
+                'size': self.buffer_size,
+                'state_shape': model.observation_shape,
+                'action_shape': model.action_shape
+            }
 
-        super().__init__(model=model,
-                         train_interval=train_interval,
-                         num_epochs=num_epochs,
-                         buffer_cls=buffer_cls,
-                         buffer_kwargs=buffer_kwargs)
+        super().__init__(
+            model=model,
+            train_interval=train_interval,
+            num_epochs=num_epochs,
+            buffer_cls=buffer_cls,
+            buffer_kwargs=buffer_kwargs
+        )
 
         # Set intervals
         self.update_interval = update_interval
@@ -192,13 +199,7 @@ class DQNAgent(Agent):
         # Set loss function
         self.loss_func = loss_func
 
-        # For recurrent intermediate representation
-        self.done = False
-        self.model._init_hidden(self.done)
-        self.hidden = self.model.hidden
-        self.pre_hidden = self.hidden
-
-    def act(self, obs: np.ndarray) -> np.ndarray:
+    def act(self, obs: np.ndarray):
         action, info = self.model.act(obs)
         if self.explore and np.random.random() < self.eps(self.curr_step):
             action = np.random.randint(self.model.action_shape[0], size=())
@@ -208,25 +209,34 @@ class DQNAgent(Agent):
 
         return action
 
-    def step(self, s, a, r, d, s_):
+    def step(self, state, action, reward, done, next_state):
         self.curr_step += 1
-        self.collect(s, a, r, d, s_)
-        self.done = d
+        self.collect(state, action, reward, done, next_state)
+        self.done = done
 
         if self.model.recurrent:
-            self.model._update_hidden(d, self.hidden)
+            self.model._update_hidden(done, self.hidden)
 
-        info = {'Values/EPS': self.eps(self.curr_step)}
+        info = {
+            'Values/EPS': self.eps(self.curr_step)
+        }
 
-        if (self.curr_step % self.train_interval == 0 and
-                self.curr_step > self.train_after):
-            info_t = self.train()
-            info.update(info_t)
-        if (self.curr_step % self.update_interval == 0 and
-                self.curr_step > self.update_after):
-            self.model.update_trg()
+        if self.train_at():
+            res = self.train()
+            info.update(res)
+
+        if self.update_at():
+            self.model.update_target()
 
         return info
+
+    def update_at(self):
+        return (self.curr_step % self.update_interval == 0 and
+                self.curr_step > self.update_after)
+
+    def train_at(self):
+        return (self.curr_step % self.train_interval == 0 and
+                self.curr_step > self.train_after)
 
     def train(self):
         for _ in range(self.num_epochs):
@@ -244,7 +254,7 @@ class DQNAgent(Agent):
 
         return info
 
-    def collect(self, s, a, r, d, s_):
+    def collect(self, state, action, reward, done, next_state):
         if self.model.discrete:
-            a = np.eye(self.model.action_shape[0])[a]
-        self.buffer.push(s, a, r, d, s_)
+            action = np.eye(self.model.action_shape[0])[action]
+        self.buffer.push(state, action, reward, done, next_state)

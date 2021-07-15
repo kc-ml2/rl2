@@ -1,12 +1,11 @@
-import os
 import json
-from easydict import EasyDict
+import os
 
-import marlenv
 from marlenv.wrappers import make_snake
 
-from rl2.examples.temp_logger import Logger
 from rl2.agents.ppo import PPOModel, PPOAgent
+from rl2.examples.temp_logger import Logger
+from rl2.utils import EasyDict
 from rl2.workers.multi_agent import MAMaxStepWorker, MAEpisodicWorker
 
 # FIXME: Remove later

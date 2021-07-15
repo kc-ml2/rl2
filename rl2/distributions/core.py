@@ -1,10 +1,11 @@
+import math
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions.categorical import Categorical
-import math
-from rl2.networks.core import MLP
 
+from rl2.networks.core import MLP
 
 EPS = 1e-8
 
@@ -14,7 +15,7 @@ class HeadModule(nn.Module):
         super().__init__()
         hidden = [128 for _ in range(depth)]
         if not module:
-            self.linear = MLP(input_size, out_size, hidden=hidden)
+            self.linear = MLP(input_size, out_size, hidden_dims=hidden)
         else:
             self.linear = module
 
@@ -217,7 +218,7 @@ class DiagGaussianDist(torch.distributions.Normal):
     def _log_prob(self, x):
         log_scale = torch.log(self.scale + EPS)
         return -((x - self.loc) ** 2) / (2 * self.var) - log_scale \
-            - math.log(math.sqrt(2 * math.pi))
+               - math.log(math.sqrt(2 * math.pi))
 
     def log_prob(self, x):
         return self._log_prob(x).sum(-1)
@@ -239,7 +240,7 @@ class DiagGaussianDist(torch.distributions.Normal):
 
     def kl(self, other):
         return torch.sum(other.logstd - self.logstd
-                         + (self.scale + (self.loc - other.loc)**2)
+                         + (self.scale + (self.loc - other.loc) ** 2)
                          / (2.0 * other.var) - 0.5, dim=-1)
 
 
@@ -267,11 +268,12 @@ class MixtureGaussianDist(torch.distributions.Normal):
 
     def rsample(self, n_sample=1):
         samples = self.sample(n_sample)
-        noise = (self.loc.unsqueeze(1)
-                 - samples.unsqueeze(2)) / self.scale.unsqueeze(1)
-        rsamples = ((self.loc.unsqueeze(1)
-                     + noise.detach() * self.scale.unsqueeze(1))
-                    * self.w.unsqueeze(1)).sum(-1)
+        loc = self.loc.unsqueeze(1)
+        scale = self.scale.unsqueeze(1)
+        noise = (loc - samples.unsqueeze(2)) / scale
+        noised_loc = (loc + noise.detach() * scale)
+        rsamples = (noised_loc * self.w.unsqueeze(1)).sum(-1)
+
         return rsamples
 
     def log_prob(self, x):
