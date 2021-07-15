@@ -30,6 +30,7 @@ class TorchModel(nn.Module):
     inherits nn.Module to utilize its functionalities, e.g. model.state_dict()
     child classes must init TorchModel for torch utilities
     """
+
     def __init__(
             self,
             observation_shape: tuple,
@@ -393,46 +394,46 @@ class BranchModel(TorchModel):
             self.parameters(), self.grad_clip)
         self.optimizer.step()
 
-    @abstractmethod
     def save(self):
         """
         TODO: implement vanila q learning
         """
-        pass
+        raise NotImplementedError
 
-    @abstractmethod
     def load(self):
         """
         TODO: implement vanila q learning
         """
-        pass
+        raise NotImplementedError
 
 
 class InjectiveBranchModel(BranchModel):
-    def __init__(self,
-                 observation_shape,
-                 action_shape,
-                 injection_shape,
-                 encoder=None,
-                 encoded_dim=64,
-                 head=None,
-                 optimizer='torch.optim.Adam',
-                 lr=1e-4,
-                 grad_clip=1.0,
-                 make_target=False,
-                 discrete=True,
-                 deterministic=True,
-                 default=True,
-                 reorder=False,
-                 flatten=False,
-                 **kwargs):
+    def __init__(
+            self,
+            observation_shape,
+            action_shape,
+            injection_shape,
+            encoder=None,
+            encoded_dim=64,
+            head=None,
+            optimizer='torch.optim.Adam',
+            lr=1e-4,
+            grad_clip=1.0,
+            make_target=False,
+            discrete=True,
+            deterministic=True,
+            default=True,
+            reorder=False,
+            flatten=False,
+            **kwargs
+    ):
         super().__init__(
             observation_shape, action_shape, encoder=encoder,
             encoded_dim=encoded_dim, head=head, optimizer=optimizer, lr=lr,
             grad_clip=grad_clip, make_target=make_target, discrete=discrete,
             deterministic=deterministic, default=default, reorder=reorder,
-            flatten=flatten,
-            **kwargs)
+            flatten=flatten, **kwargs
+        )
         optim_args = kwargs.get('optim_args', {})
 
         if (not encoder and not default) or flatten:
