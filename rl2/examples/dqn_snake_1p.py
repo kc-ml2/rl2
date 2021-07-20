@@ -11,29 +11,33 @@ from rl2.workers.base import EpisodicWorker, MaxStepWorker
 
 
 def dqn(obs_shape, ac_shape, config, props, load_dir=None):
-    model = DQNModel(observation_shape=obs_shape,
-                     action_shape=ac_shape,
-                     double=config.double,
-                     recurrent=config.recurrent,
-                     optimizer=config.optimizer,
-                     lr=config.lr,
-                     grad_clip=config.grad_clip,
-                     polyak=config.polyak,
-                     reorder=True,
-                     discrete=props.discrete,
-                     high=props.high)
+    model = DQNModel(
+        observation_shape=obs_shape,
+        action_shape=ac_shape,
+        double=config.double,
+        recurrent=config.recurrent,
+        optimizer=config.optimizer,
+        lr=config.lr,
+        grad_clip=config.grad_clip,
+        polyak=config.polyak,
+        reorder=True,
+        discrete=props['discrete'],
+        high=props['high']
+    )
     if load_dir is not None:
         model.load(load_dir)
-    agent = DQNAgent(model,
-                     update_interval=config.update_interval,
-                     train_interval=config.train_interval,
-                     num_epochs=config.num_epochs,
-                     buffer_size=config.buffer_size,
-                     batch_size=config.batch_size,
-                     decay_step=config.decay_step,
-                     eps=config.eps,
-                     gamma=config.gamma,
-                     log_interval=config.log_interval,)
+    agent = DQNAgent(
+        model,
+        update_interval=config.update_interval,
+        train_interval=config.train_interval,
+        num_epochs=config.num_epochs,
+        buffer_size=config.buffer_size,
+        batch_size=config.batch_size,
+        decay_step=config.decay_step,
+        eps=config.eps,
+        gamma=config.gamma,
+        log_interval=config.log_interval,
+    )
     return agent
 
 
@@ -56,7 +60,8 @@ def train(config):
         reward_dict=custom_reward,
     )
     agent = dqn(observation_shape, action_shape, config, props)
-    worker = MaxStepWorker(env, props.num_envs, agent,
+    worker = MaxStepWorker(env, agent,
+                           num_envs=props['num_envs'],
                            max_steps=config.max_step, training=True,
                            log_interval=config.log_interval,
                            render=True,

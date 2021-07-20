@@ -60,12 +60,12 @@ print(config.train_interval)
 agent = PPOAgent(
     model,
     train_interval=config.train_interval,
-    # num_envs=props.n_env,
+    # num_envs=props.num_envs,
     # batch_size=config.batch_size,
     # num_epochs=config.epoch,
     # buffer_kwargs={
     #     'size': config.train_interval,
-    #     'num_envs': props.n_env
+    #     'num_envs': props.num_envs
     # }
 )
 erange = (10, 31)

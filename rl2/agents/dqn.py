@@ -20,9 +20,9 @@ def loss_func(data, model, hidden=None, **kwargs):
     done_mask_ = d
     with torch.no_grad():
         if model.recurrent:
-            q_next_trg = model.q.forward_trg(s_, mask=done_mask_)[0].mean
+            q_next_trg = model.q.forward_target(s_, mask=done_mask_)[0].mean
         else:
-            q_next_trg = model.q.forward_trg(s_, mask=done_mask_).mean
+            q_next_trg = model.q.forward_target(s_, mask=done_mask_).mean
         if model.double:
             q_next = model(s_, mask=done_mask).mean
             a_ = torch.argmax(q_next, dim=-1, keepdim=True)

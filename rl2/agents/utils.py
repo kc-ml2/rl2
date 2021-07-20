@@ -1,6 +1,31 @@
 import numpy as np
 
 
+class GAE:
+    def __init__(self, gamma, lamb):
+        self.gamma = gamma
+        self.lamb = lamb
+
+    def estimate(self, trajectories, prev_value, prev_done):
+        gae = 0
+        prev_value = np.array([prev_value]).squeeze(0)
+        advs = np.zeros(trajectories['value'].shape)
+        n_step = advs.shape[0]
+        done_mask = (1 - np.array([prev_done])).astype(np.float).squeeze(0)
+
+        for t in reversed(range(n_step)):
+            if t != n_step - 1:
+                prev_value = trajectories['value'][t + 1]
+                done_mask = 1.0 - (trajectories['done'][t + 1]).astype(np.float)
+            rews = trajectories['reward'][t]
+            value = trajectories['value'][t]
+            delta = rews + done_mask * self.gamma * prev_value - value
+            gae = delta + done_mask * self.gamma * self.lamda * gae
+            advs[t] = gae
+
+        return advs
+
+
 def general_advantage_estimation(
         trajectories: dict,
         value_p,

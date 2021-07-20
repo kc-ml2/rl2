@@ -28,10 +28,10 @@ def loss_func_cr(data, model, **kwargs):
         map(lambda x: torch.from_numpy(x).float().to(model.device), data)
     )
     with torch.no_grad():
-        a_trg = model.mu.forward_trg(s_).mean
+        a_trg = model.mu.forward_target(s_).mean
         if not model.discrete:
             a_trg = torch.tanh(a_trg)
-        v_trg = model.q.forward_trg(s_, a_trg).mean
+        v_trg = model.q.forward_target(s_, a_trg).mean
         bellman_trg = r + kwargs['gamma'] * v_trg * (1 - d)
 
     q = model.q(s, a).mean

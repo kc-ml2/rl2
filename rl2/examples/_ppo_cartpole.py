@@ -1,11 +1,9 @@
 import gym
-from gym.vector.sync_vector_env import SyncVectorEnv
+
 from gym.vector.async_vector_env import AsyncVectorEnv
-from baselines.common.vec_env import SubprocVecEnv, DummyVecEnv
-import marlenv
-from marlenv.wrappers import SingleAgent
-from rl2.agents.ppo import PPOModel, PPOAgent
+
 from rl2.agents.ddpg import DDPGModel, DDPGAgent
+from rl2.agents.ppo import PPOModel, PPOAgent
 from rl2.workers import MaxStepWorker
 
 
@@ -19,14 +17,14 @@ def make_cartpole(seed=None):
     return _make
 
 
-def make_snake():
-    def _make():
-        env = gym.make("Snake-v1", num_snakes=1, width=10, height=10,
-                       vision_range=5)
-        env = SingleAgent(env)
-        return env
-
-    return _make
+# def make_snake():
+#     def _make():
+#         env = gym.make("Snake-v1", num_snakes=1, width=10, height=10,
+#                        vision_range=5)
+#         env = SingleAgent(env)
+#         return env
+#
+#     return _make
 
 
 def make_single():

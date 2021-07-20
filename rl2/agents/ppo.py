@@ -173,7 +173,7 @@ class PPOAgent(Agent):
             gamma: float = 0.99,
             lamda: float = 0.95,
             log_interval: int = int(1e3),
-            use_gail=False,
+            # use_gail=False,
             **kwargs
     ):
         super().__init__(
@@ -184,10 +184,10 @@ class PPOAgent(Agent):
             buffer_kwargs=buffer_kwargs,
             **kwargs
         )
-        self.use_gail = use_gail
-        if self.use_gail:
-            self.discriminator = kwargs.pop('discriminator')
-            self.expert_trajs = kwargs.pop('expert_trajs')
+        # self.use_gail = use_gail
+        # if self.use_gail:
+        #     self.discriminator = kwargs.pop('discriminator')
+        #     self.expert_trajs = kwargs.pop('expert_trajs')
 
         self.obs = None
         # self.num_envs = num_envs
@@ -223,50 +223,10 @@ class PPOAgent(Agent):
 
         return action
 
-    def pack_data(self):
-        flat_eobss = []
-        flat_eacs = []
-        for traj in self.expert_trajs:
-            for datum in traj:
-                obs, ac = datum[0], datum[1]
-                flat_eobss.append(np.asarray(obs).flatten())
-                flat_eacs.append(ac)
-
-        one_hots = np.eye(5)
-
-        edata = np.asarray(
-            [np.concatenate([i, one_hots[j]]) for i, j in zip(flat_eobss, flat_eacs)]
-        )
-
-        self.buffer.shuffle()
-        sample = self.buffer.sample(1024, return_idx=True)
-
-        so = [i.flatten() for i in sample[0]]
-        sa = [one_hots[int(i)] for i in sample[1]]
-
-        adata = np.asarray([np.concatenate([i, j]) for i, j in zip(so, sa)])
-
-        idxes = np.random.randint(0, len(edata), size=1024)
-        edata = edata[idxes]
-
         idxes = np.random.randint(0, len(adata), size=1024)
         adata = adata[idxes]
 
         return edata, adata
-
-    def _update_rew(self):
-        s = np.array(self.buffer.state)
-        t, b = s.shape[0], s.shape[1]
-        a = np.array(self.buffer.action).flatten()
-        s_disc = torch.FloatTensor(s).to(self.discriminator.device).view(t * b, -1)
-        one_hots = np.eye(5)
-        a_disc = torch.FloatTensor(one_hots[a]).to(self.discriminator.device)
-        input_disc = torch.cat([s_disc, a_disc], -1)
-        with torch.no_grad():
-            p = self.discriminator(input_disc).mean.squeeze()
-            new_rew = -torch.log(1 - torch.sigmoid(p) + 1e-8).view(t, b)
-            new_rew = new_rew.cpu().numpy()
-        self.buffer.reward = [r for r in new_rew]
 
     def train_at(self, curr_step):
         return curr_step % self.train_interval == 0
@@ -281,11 +241,11 @@ class PPOAgent(Agent):
 
         info = {}
         if self.train_at(self.curr_step):
-            if self.use_gail:
-                adata, data, edata = self.gail_data()
-                output = self.discriminator(data).mean
-                self.discriminate(adata, edata, output)
-                self._update_rew()
+            # if self.use_gail:
+            #     adata, data, edata = self.gail_data()
+            #     output = self.discriminator(data).mean
+            #     self.discriminate(adata, edata, output)
+            #     self._update_rew()
 
             value = self.model.val(next_state)
             advs = general_advantage_estimation(
@@ -351,5 +311,12 @@ class PPOAgent(Agent):
         )
         return batch_data, sub_idx
 
-    def collect(self, *args):
-        self.buffer.push(*args)
+    def collect(self, state, action, reward, done, value, nlp):
+        self.buffer.push(
+            state=state,
+            action=action,
+            reward=reward,
+            done=self.done,
+            value=self.value,
+            nlp=self.nlp
+        )

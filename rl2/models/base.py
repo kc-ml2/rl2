@@ -374,7 +374,7 @@ class BranchModel(TorchModel):
             return output, hidden
         return output
 
-    def forward_trg(self, observation, **kwargs):
+    def forward_target(self, observation, **kwargs):
         observation = self._handle_obs_shape(observation)
         with torch.no_grad():
             ir = self.encoder_target(observation, **kwargs)
@@ -464,7 +464,7 @@ class InjectiveBranchModel(BranchModel):
             return output, hidden
         return output
 
-    def forward_trg(self, observation, injection, *args):
+    def forward_target(self, observation, injection, *args):
         observation = self._handle_obs_shape(observation)
         with torch.no_grad():
             ir = self.encoder_target(observation, *args)

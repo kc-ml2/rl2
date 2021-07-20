@@ -36,7 +36,7 @@ def ppo(obs_shape, ac_shape, config, props, load_dir=None):
         batch_size=config.batch_size,
         num_epochs=config.epoch,
         buffer_kwargs={'size': config.train_interval,
-                       'n_env': props.num_envs},
+                       'num_envs': props.num_envs},
         use_gail=True,
         discriminator=BranchModel(
             (11 * 11 * 16 + 5,), (1,),
@@ -61,7 +61,7 @@ def train(config):
         'time': 0.0
     }
     env, observation_shape, action_shape, props = make_snake(
-        n_env=config.num_envs,
+        num_envs=config.num_envs,
         num_snakes=config.num_snakes,
         width=config.width,
         height=config.height,
@@ -96,7 +96,7 @@ def test(config, load_dir=None):
     logger = Logger(name='TUTORIAL', args=config)
 
     env, observation_shape, action_shape, props = make_snake(
-        n_env=1,
+        num_envs=1,
         num_snakes=config.num_snakes,
         width=config.width,
         height=config.height,
@@ -121,7 +121,7 @@ def test(config, load_dir=None):
 if __name__ == "__main__":
     # This can be replaced with argparser, click, etc.
     myconfig = {
-        'n_env': 64,
+        'num_envs': 64,
         'num_snakes': 1,
         'width': 7,
         'height': 7,

@@ -14,7 +14,7 @@ class ScalarHead(nn.Module):
         super().__init__()
         self.linear = nn.Linear(input_size, out_size)
 
-    def forward(self, x) -> "torch.distrib":
+    def forward(self, x):
         x = self.linear(x)
         dist = ScalarDist(x)
         return dist

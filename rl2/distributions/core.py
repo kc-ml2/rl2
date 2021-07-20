@@ -5,6 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions.categorical import Categorical
 
+import rl2.ctx
 from rl2.networks.core import MLP
 
 EPS = 1e-8
@@ -241,7 +242,7 @@ class DiagGaussianDist(torch.distributions.Normal):
     def kl(self, other):
         return torch.sum(other.logstd - self.logstd
                          + (self.scale + (self.loc - other.loc) ** 2)
-                         / (2.0 * other.var) - 0.5, dim=-1)
+                         / (2.0 * rl2.ctx.var) - 0.5, dim=-1)
 
 
 # TODO: implement mixture of gaussian

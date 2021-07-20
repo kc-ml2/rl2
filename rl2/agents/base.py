@@ -1,8 +1,7 @@
 from typing import Union, List, Tuple
-import numpy as np
 
-from rl2.models.tf.base import TFModel
 from rl2.models.base import TorchModel
+from rl2.models.tf.base import TFModel
 
 
 class Agent:
@@ -20,18 +19,18 @@ class Agent:
             buffer_kwargs={},
             num_epochs: int = 0,
             num_envs: int = 1,
-            *args,
-            **kwargs
+            train_interval: int = 128,
+            eval_interval: int = 0
     ):
         self.model = model
 
         self.curr_step = 0
         self.tasks: List[Tuple[callable, callable]] = []
 
-        self.train_interval = kwargs.pop('train_interval', 128)
-        train_at = lambda x: x % self.train_interval == 0
-        self.eval_interval = kwargs.pop('eval_interval', 128)
-        eval_at = lambda x: x % self.eval_interval == 0
+        self.train_interval = train_interval
+        self.train_at = lambda x: x % self.train_interval == 0
+        self.eval_interval = eval_interval
+        self.eval_at = lambda x: x % self.eval_interval == 0
 
         self.num_epochs = num_epochs
         if self.train_interval > 0:

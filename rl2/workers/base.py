@@ -1,17 +1,21 @@
+import contextvars
 import logging
 import os
 import pickle
 import signal
 import time
 from collections import deque
+from contextvars import ContextVar
 from datetime import datetime
 from pathlib import Path
 from typing import Tuple
 
 import numpy as np
 
+from rl2.ctx import var
 
 # from logging import getLogger, Logger
+logger = logging.getLogger(__name__)
 
 
 class Timer:
@@ -41,10 +45,13 @@ class RolloutWorker:
             num_envs=1,
             train_config=None,
             render_interval=0,
-            save_interval=None,
+            save_interval=0,
             save_erange: Tuple[int, int] = None,  # range of episodes
             **kwargs
     ):
+        config = var.get()
+        self.base_log_dir = config['log_dir']
+
         self.env = env
         self.agent = agent
         self.num_envs = num_envs
@@ -117,21 +124,36 @@ class RolloutWorker:
             self.train_mode = False
             # self.agent.model.eval()
 
-    def as_saving(self, all=True):
-        self.saving_model = True
+    def as_saving(self, tensorboard=True, saved_model=True):
+        self.saving_model = saved_model
+        self.saving_tensorboard_summary = tensorboard
 
         return self
 
     def default_save_dir(self):
         return f"""{type(self).__name__}_{datetime.now().strftime('%Y%m%d%H%M%S')}"""
 
+    def ensure_save_dir(self, name):
+        save_dir = os.path.join(
+            self.base_log_dir,
+            self.default_save_dir(),
+            name
+        )
+
+        Path(save_dir).mkdir(parents=True, exist_ok=True)
+
+        return save_dir
+
     def save_model(self, save_dir=None):
         if save_dir is None:
-            save_dir = self.default_save_dir()
+            save_dir = self.ensure_save_dir('models')
 
-        save_dir = os.path.join(save_dir, f'ckpt/{int(self.num_steps / 1000)}k')
-        Path(save_dir).mkdir(parents=True, exist_ok=True)
-        self.agent.model.save_model(save_dir)
+        save_dir = os.path.join(
+            save_dir,
+            f'ckpt/{int(self.num_steps / 1000)}k'
+        )
+        Path(save_dir).mkdir(parents=True)
+        self.agent.model.save(save_dir)
 
         logging.info(f'saved model to {save_dir}')
 
@@ -139,11 +161,10 @@ class RolloutWorker:
 
     def save_expert_data(self, save_dir=None):
         if save_dir is None:
-            save_dir = os.path.join(self.default_save_dir(), 'expert_data')
-            Path(save_dir).mkdir(parents=True, exist_ok=True)
+            save_dir = self.ensure_save_dir('expert_data')
 
-            filename = f'{type(self.agent).__name__}_trajs.pickle'
-            save_dir = os.path.join(save_dir, filename)
+        filename = f'{type(self.agent).__name__}_trajs.pickle'
+        save_dir = os.path.join(save_dir, filename)
 
         with open(save_dir, 'wb') as fp:
             pickle.dump(self.trajectories, fp)
@@ -236,7 +257,6 @@ class MaxStepWorker(RolloutWorker):
         self.time_to_log_image = False
 
     def run(self):
-
         steps_per_env = (self.max_steps // self.num_envs) + 1
         for step in range(steps_per_env):
             done, info, results = self.rollout()
@@ -250,13 +270,13 @@ class MaxStepWorker(RolloutWorker):
         return (self.save_interval > 0) and (
                 (self.num_steps % self.save_interval) < self.num_envs)
 
-    def save_model(self):
-        if hasattr(self, 'logger'):
-            save_dir = getattr(self.logger, 'log_dir')
-        else:
-            save_dir = os.getcwd()
-
-        self.save_model(save_dir)
+    # def save_model(self):
+    #     if hasattr(self, 'logger'):
+    #         save_dir = getattr(self.logger, 'log_dir')
+    #     else:
+    #         save_dir = os.getcwd()
+    #
+    #     self.save_model(save_dir)
 
     def worker_log(self, done):
         # Save rendered image as gif

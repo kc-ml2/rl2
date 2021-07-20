@@ -1,9 +1,10 @@
 import random
-from typing import Tuple
-from collections import Iterable
-import numpy as np
 import warnings
+from collections import Iterable
 from collections import namedtuple
+from typing import Tuple
+
+import numpy as np
 
 
 class ReplayBuffer:
@@ -27,10 +28,14 @@ class ReplayBuffer:
             self.specs = None
         else:
             raise ValueError("Elements can only be a dictionary or a set")
-        self.transition = namedtuple("Transition",
-                                     ' '.join(list(self.keys)))
-        self.transition_idx = namedtuple("Transition",
-                                         ' '.join(list(self.keys)) + ' idx')
+        self.transition = namedtuple(
+            "Transition",
+            ' '.join(list(self.keys))
+        )
+        self.transition_idx = namedtuple(
+            "Transition",
+            ' '.join(list(self.keys)) + ' idx'
+        )
         self.reset()
 
     def reset(self):
@@ -43,8 +48,9 @@ class ReplayBuffer:
                     dtype = None
                 assert isinstance(shape, Iterable), 'Non-iterable shape given'
                 if dtype and dtype.__module__ == 'numpy':
-                    setattr(self, k,
-                            np.ones((self.max_size, *shape), dtype=dtype))
+                    setattr(
+                        self, k, np.ones((self.max_size, *shape), dtype=dtype)
+                    )
                 else:
                     setattr(self, k, [None] * self.max_size)
         else:
@@ -145,7 +151,8 @@ class ExperienceReplay(ReplayBuffer):
             action_type=np.float32
     ):
         super().__init__(
-            size, elements={
+            size,
+            elements={
                 'state': (state_shape, state_type),
                 'action': (action_shape, action_type),
                 'reward': ((1,), np.float32),
@@ -159,7 +166,8 @@ class ExperienceReplay(ReplayBuffer):
 
     def push(self, state, action, reward, done, next_state):
         super().push(
-            state=state, action=action, reward=reward, done=done, next_state=next_state
+            state=state, action=action, reward=reward, done=done,
+            next_state=next_state
         )
 
     def sample(self, num, idx=None, return_idx=False, contiguous=1):
@@ -172,15 +180,16 @@ class ExperienceReplay(ReplayBuffer):
         if contiguous > 1:
             state = transitions.state.reshape(
                 contiguous, -1, *transitions.state.shape[1:])
-            state_ = transitions.state_.reshape(
-                contiguous, -1, *transitions.state_.shape[1:])
+            next_state = transitions.next_state.reshape(
+                contiguous, -1, *transitions.next_state.shape[1:])
             done = transitions.done.reshape(
                 contiguous, -1)
         else:
             state = transitions.state
-            state_ = transitions.state_
+            next_state = transitions.next_state
             done = transitions.done
-        output = [state, transitions.action, transitions.reward, done, state_]
+        output = [state, transitions.action, transitions.reward, done,
+                  next_state]
         if return_idx:
             output.append(transitions.idx)
 
@@ -188,10 +197,27 @@ class ExperienceReplay(ReplayBuffer):
 
 
 class TemporalMemory(ReplayBuffer):
-    def __init__(self, size=1, num_envs=1):
+    def __init__(
+            self,
+            size: int = 1024,
+            num_envs: int = 1,
+            state_shape=(1,),
+            action_shape=(1,),
+            state_type=np.float32,
+            action_type=np.float32,
+    ):
         super().__init__(
-            size,
-            elements=['state', 'action', 'reward', 'done', 'value', 'nlp']
+            size=size,
+            elements=['state', 'action', 'reward', 'done', 'value', 'nlp'],
+            # elements={
+            #     'state': (state_shape, np.float32),
+            #     'action': (action_shape, np.float32),
+            #     'reward': ((2,), np.float32),
+            #     'done': ((2,), np.uint8),
+            #     'value': ((2,), np.float32),
+            #     # temporary
+            #     'nlp': ((2,), np.float32),
+            # }
         )
         self.num_envs = num_envs
         self.shuffle()
@@ -205,7 +231,8 @@ class TemporalMemory(ReplayBuffer):
 
     def push(self, state, action, reward, done, value, nlp):
         super().push(
-            state=state, action=action, reward=reward, done=done, value=value, nlp=nlp
+            state=state, action=action, reward=reward, done=done, value=value,
+            nlp=nlp
         )
 
     def sample(self, num, idx=None, return_idx=False, recurrent=False):
@@ -223,12 +250,14 @@ class TemporalMemory(ReplayBuffer):
                 idx = transitions.idx
                 # sub_idx = np.random.permutation(self.num_envs)[:env_sample_size]
                 sub_idx = self.env_idx_queue[self.start:self.start + num_skip]
-                output = [transitions.state[:, sub_idx],
-                          transitions.action[:, sub_idx].reshape(-1, 1),
-                          transitions.reward[:, sub_idx].reshape(-1, 1),
-                          transitions.done[:, sub_idx],
-                          transitions.value[:, sub_idx].reshape(-1, 1),
-                          transitions.nlp[:, sub_idx].reshape(-1, 1)]
+                output = [
+                    transitions.state[:, sub_idx],
+                    transitions.action[:, sub_idx].reshape(-1, 1),
+                    transitions.reward[:, sub_idx].reshape(-1, 1),
+                    transitions.done[:, sub_idx],
+                    transitions.value[:, sub_idx].reshape(-1, 1),
+                    transitions.nlp[:, sub_idx].reshape(-1, 1)
+                ]
                 mesh = np.array(np.meshgrid(idx, sub_idx)).T.reshape(-1, 2).T
                 idx = mesh[0]
                 sub_idx = mesh[1]
@@ -237,14 +266,21 @@ class TemporalMemory(ReplayBuffer):
                     self.start = 0
             else:
                 # rand_idx = np.random.permutation(self.curr_size * self.num_envs)[:num]
-                rand_idx = self.time_idx_queue[self.start:
-                                               self.start + num_skip]
+                rand_idx = self.time_idx_queue[self.start: self.start + num_skip]
+
                 state = transitions.state
-                scalars = [transitions.action, transitions.reward,
-                           transitions.done, transitions.value,
-                           transitions.nlp]
-                output = [state.reshape(-1, *state.shape[2:])[rand_idx],
-                          *[el.reshape(-1, 1)[rand_idx] for el in scalars]]
+                scalars = [
+                    transitions.action,
+                    transitions.reward,
+                    transitions.done,
+                    transitions.value,
+                    transitions.nlp
+                ]
+
+                output = [
+                    state.reshape(-1, *state.shape[2:])[rand_idx],
+                    *[el.reshape(-1, 1)[rand_idx] for el in scalars]
+                ]
                 idx = transitions.idx[rand_idx // self.num_envs]
                 sub_idx = rand_idx % self.num_envs
                 self.start += num_skip
