@@ -115,31 +115,9 @@ if __name__ == '__main__':
     config = DEFAULT_DQN_CONFIG
 
     # Or Customize your config
-    myconfig = {
-        'width': 20,
-        'height': 20,
-        'vision_range': 5,
-        'frame_stack': 2,
-        'buffer_size': int(1e5),
-        'batch_size': 32,
-        'num_epochs': 1,
-        'max_step': int(5e5),
-        'update_interval': int(1e4),
-        'train_interval': 1,
-        'log_interval': 20000,
-        'save_interval': int(1e3),
-        'optimizer': 'torch.optim.Adam',
-        'lr': 1e-3,
-        'recurrent': True,
-        'gamma': 0.99,
-        'eps': 0.001,
-        'polyak': 0,
-        'decay_step': int(1e5),
-        'grad_clip': 10,
-        'tag': 'DDQN/SNAKE',
-        'double': True,
-        'log_level': 10,
-    }
+    from rl2.ctx import var
+
+    myconfig = var.get()
     config = EasyDict(myconfig)
 
     log_dir = train(config)

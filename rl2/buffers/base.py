@@ -6,11 +6,13 @@ from typing import Tuple
 
 import numpy as np
 
+DEFAULT_SIZE = 1024
+
 
 class ReplayBuffer:
     def __init__(
             self,
-            size=1,
+            size=DEFAULT_SIZE,
             elements={
                 'state': ((4,), np.float32),
                 'action': ((2,), np.float32),
@@ -28,6 +30,7 @@ class ReplayBuffer:
             self.specs = None
         else:
             raise ValueError("Elements can only be a dictionary or a set")
+
         self.transition = namedtuple(
             "Transition",
             ' '.join(list(self.keys))
@@ -36,7 +39,14 @@ class ReplayBuffer:
             "Transition",
             ' '.join(list(self.keys)) + ' idx'
         )
+
         self.reset()
+
+    def _list_type(self):
+        pass
+
+    def _dict_type(self):
+        pass
 
     def reset(self):
         if self.specs is not None:
@@ -46,9 +56,12 @@ class ReplayBuffer:
                 else:
                     shape = shape_dtype
                     dtype = None
+
                 assert isinstance(shape, Iterable), 'Non-iterable shape given'
+
                 if dtype and dtype.__module__ == 'numpy':
                     setattr(
+                        # np.zeors does not allocate memory
                         self, k, np.ones((self.max_size, *shape), dtype=dtype)
                     )
                 else:
@@ -199,7 +212,7 @@ class ExperienceReplay(ReplayBuffer):
 class TemporalMemory(ReplayBuffer):
     def __init__(
             self,
-            size: int = 1024,
+            size: int = DEFAULT_SIZE,
             num_envs: int = 1,
             state_shape=(1,),
             action_shape=(1,),
@@ -226,25 +239,34 @@ class TemporalMemory(ReplayBuffer):
         self.time_idx_queue = np.random.permutation(
             self.max_size * self.num_envs
         )
+        # self.time_idx_queue = np.random.permutation(self.max_size)
         self.env_idx_queue = np.random.permutation(self.num_envs)
         self.start = 0
 
     def push(self, state, action, reward, done, value, nlp):
         super().push(
-            state=state, action=action, reward=reward, done=done, value=value,
+            state=state,
+            action=action,
+            reward=reward,
+            done=done,
+            value=value,
             nlp=nlp
         )
 
     def sample(self, num, idx=None, return_idx=False, recurrent=False):
         env_sample_size = 1
         num_skip = num
+        idx = np.arange(self.max_size)
         if recurrent:
             assert num >= self.max_size
-            idx = np.arange(self.max_size)
             env_sample_size = num // self.max_size
             num_skip = env_sample_size
         transitions = super().sample(num, idx=idx, return_idx=return_idx)
 
+        # minibatch 뽑는 방법
+        # 1. 무조건 random w/ replacement -> randint
+        # 2. random w/o replacement -> np.permutation, batchsize 잘라, chunk
+        # -> sample_with_replcaeads
         if self.num_envs > 1:
             if recurrent:
                 idx = transitions.idx
@@ -276,11 +298,15 @@ class TemporalMemory(ReplayBuffer):
                     transitions.value,
                     transitions.nlp
                 ]
-
+                rstate = state.reshape(-1, *state.shape[2:])
+                rscalars = [el.reshape(-1, 1)[rand_idx] for el in scalars]
+                # state t, e, shape -> t*e, shape
+                # assume
                 output = [
-                    state.reshape(-1, *state.shape[2:])[rand_idx],
-                    *[el.reshape(-1, 1)[rand_idx] for el in scalars]
+                    rstate[rand_idx], #
+                    *rscalars
                 ]
+
                 idx = transitions.idx[rand_idx // self.num_envs]
                 sub_idx = rand_idx % self.num_envs
                 self.start += num_skip

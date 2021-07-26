@@ -14,13 +14,14 @@ from rl2.models.base import BranchModel
 from rl2.ctx import var
 from rl2.workers import RolloutWorker, MaxStepWorker
 
-e, o, a, p = make_snake(num_envs=2, num_snakes=1)
-BATCH_SIZE = 8
+e, o, a, p = make_snake(num_envs=3, num_snakes=1, vision_range=5, frame_stack=2)
+BATCH_SIZE = 16
 
 
-def disc_loss_fn(data, model, eps=1e-8):
-    p = model(data).mean.squeeze()
-    loss = -torch.log(1 - torch.sigmoid(p) + eps).view(t, b)
+def disc_loss_fn(logits, shape):
+    # with torch.no_grad():
+    loss = -torch.log(1 - torch.sigmoid(logits) + 1e-8).sum()
+    # loss = neg.view(*shape)
 
     return loss
 
@@ -32,7 +33,7 @@ class FlatExpertTrajectory(Dataset):
             data: List[List[Tuple[np.ndarray, np.ndarray]]] = None,
             num_episodes: int = None,
             device: str = 'cuda' if torch.cuda.is_available() else 'cpu',
-            one_hot: np.ndarray=None,
+            one_hot: np.ndarray = None,
     ):
         self.num_episodes = num_episodes
         self.device = device
@@ -83,8 +84,17 @@ class FlatExpertTrajectory(Dataset):
             # type check?
 
 
-discriminatior = BranchModel(o, a)
-
+discriminatior = BranchModel(
+    (np.prod(o) + a[0],),
+    (1,),
+    discrete=False,
+    deterministic=True,
+    flatten=True
+)
+"""
+multiple inherit vs composition
+meta class usage
+"""
 
 class AdversarialImitationMixin:
     def discrimination_reward(self):
@@ -92,22 +102,36 @@ class AdversarialImitationMixin:
 
     def train_discriminator(self):
         raise NotImplementedError
+ 
+
+def flatten_concat(states, actions, one_hot):
+    if not isinstance(states, np.ndarray) or not isinstance(actions, np.ndarray):
+        states = np.asarray(states)
+        actions = np.asarray(actions)
+        rows, cols = states.shape[0], states.shape[1]
+        states = states.reshape(rows * cols, -1)
+        actions = actions.reshape(rows * cols, -1)
 
 
-def flatten_concat(states, actions):
-    print(states.shape)
-    print(actions.shape)
     states = [state.flatten().astype(np.float32) for state in states]
-    if actions[0].shape == (0,):
-        actions = [action.flatten().astype(np.float32) for action in actions]
+    actions = [one_hot[int(action[0])] for action in actions]
     ret = np.asarray([np.concatenate([i, j]) for i, j in zip(states, actions)])
-    ret = torch.from_numpy(ret)
+    ret = torch.from_numpy(ret).float()
+
     return ret
 
 
 class GAILAgent(AdversarialImitationMixin, PPOAgent):
-    def __init__(self, model, discriminator, expert_trajs: FlatExpertTrajectory, **kwargs):
-        PPOAgent.__init__(self, model=model, **kwargs)
+    def __init__(
+            self,
+            model,
+            discriminator,
+            expert_trajs: FlatExpertTrajectory,
+            one_hot,
+            num_envs,
+            **kwargs,
+    ):
+        PPOAgent.__init__(self, model=model, num_envs=num_envs, **kwargs)
         self.discriminator = discriminator
         self.expert_trajs = expert_trajs
         self.disc_batch_size = BATCH_SIZE
@@ -116,15 +140,17 @@ class GAILAgent(AdversarialImitationMixin, PPOAgent):
             expert_trajs,
             batch_size=self.disc_batch_size
         )
+        self.one_hot = one_hot
+        self.outer_shape = (self.train_interval, self.num_envs)
 
     def discrimination_reward(self, adversary):
         with torch.no_grad():
-            mean = self.discriminator(adversary).mean.squeeze()
-            error = 1 - torch.sigmoid(mean)
-            cost = -torch.log(error + 1e-8)
-            cost = cost.cpu().numpy()
+            logits = self.discriminator(adversary).mean.squeeze()
+            error = 1 - torch.sigmoid(logits)
+            cost = -torch.log(error + 1e-8).view(128, 3)
+            cost = cost.cpu().numpy().tolist()
 
-        return [i for i in cost]
+        return cost
 
     def step(self, state, action, reward, done, next_state):
         self.curr_step += 1
@@ -134,13 +160,17 @@ class GAILAgent(AdversarialImitationMixin, PPOAgent):
         if self.train_at(self.curr_step):
             self.buffer.shuffle()
             info_ = self.train_discriminator()
-            info = {**info, **info_}
+            # info = {**info, **info_}
 
+            # self.buffer.sample(size=TRAIN_INTERVAL)
+            # data = self.buffer.to_np()
             adversary = flatten_concat(
                 self.buffer.state,
-                self.buffer.action
+                self.buffer.action,
+                self.one_hot,
             ).to(self.discriminator.device)
 
+            print(adversary.shape)
             self.buffer.reward = self.discrimination_reward(adversary)
 
             value = self.model.val(next_state)
@@ -149,7 +179,7 @@ class GAILAgent(AdversarialImitationMixin, PPOAgent):
             )
 
             info_ = self.train(advs)
-            info = {**info, **info_}
+            # info = {**info, **info_}
 
             self.buffer.reset()
 
@@ -164,8 +194,6 @@ class GAILAgent(AdversarialImitationMixin, PPOAgent):
     def train_discriminator(self):
         for epoch in range(self.disc_epochs):
             for expert_batch, expert_labels in self.expert_traj_loader:
-                print('*'*100, self.buffer.curr_size)
-                print('*'*100, self.disc_batch_size)
                 buffer_batch = self.buffer.sample(
                     self.disc_batch_size,
                     return_idx=True
@@ -173,7 +201,8 @@ class GAILAgent(AdversarialImitationMixin, PPOAgent):
 
                 buffer_batch = flatten_concat(
                     buffer_batch[0],
-                    buffer_batch[1]
+                    buffer_batch[1],
+                    one_hot,
                 ).to(self.discriminator.device)
 
                 # adversary data label == 0
@@ -182,8 +211,11 @@ class GAILAgent(AdversarialImitationMixin, PPOAgent):
                 )
                 batch = torch.cat([expert_batch, buffer_batch])
                 labels = torch.cat([expert_labels, buffer_labels])
-                logits = self.discriminator(batch)
-                disc_loss = disc_loss_fn(logits, labels)
+                prob = self.discriminator(batch)
+                logits = prob.mean.squeeze()
+
+                # with torch.no_grad():
+                disc_loss = disc_loss_fn(logits, self.outer_shape)
                 info = self.discriminator.step(disc_loss)
 
         return info
@@ -222,7 +254,8 @@ class VAILAgent(AdversarialImitationMixin, PPOAgent):
 #     loss = F.binary_cross_entropy_with_logits(output, labels)
 #     self.discriminator.step(loss)
 
-TRAIN_INTERVAL = 32
+TRAIN_INTERVAL = 128
+BATCH_SIZE = 16
 if __name__ == '__main__':
     # config = var.get('config')
     # list vs element for single agent... marlenv...
@@ -239,13 +272,18 @@ if __name__ == '__main__':
         buffer_kwargs={
             'size': TRAIN_INTERVAL,
             'num_envs': p['num_envs'],
-        }
+        },
+        one_hot=one_hot
         #     'state_shape': (p['num_envs'], *o),
         #     'action_shape': (p['num_envs'],),
         # }
     )
 
-    worker = MaxStepWorker(e, agent, max_step=1)
+    worker = MaxStepWorker(e, agent, max_steps=1024, num_envs=p['num_envs'], render_interval=1)
     worker.set_mode(train=True)
     with worker.as_saving(tensorboard=False, saved_model=False):
         worker.run()
+
+# intrinsic reward -> exploration 권장
+# on policy
+# off policy batch size 키워라 -> PER

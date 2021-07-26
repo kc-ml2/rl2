@@ -182,6 +182,7 @@ class PPOAgent(Agent):
             num_epochs=num_epochs,
             buffer_cls=buffer_cls,
             buffer_kwargs=buffer_kwargs,
+            num_envs=num_envs,
             **kwargs
         )
         # self.use_gail = use_gail

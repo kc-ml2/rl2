@@ -6,3 +6,4 @@ default_config = {
     'log_dir': os.path.join(Path.home(), 'rl2-runs')
 }
 var = ContextVar('config', default=default_config)
+

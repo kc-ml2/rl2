@@ -11,7 +11,7 @@ from rl2.models.base import BranchModel
 from rl2.utils import EasyDict
 from rl2.workers import MaxStepWorker, EpisodicWorker
 
-expert_trajs = np.load(f'/home/anthony/expert_trajs.npy', allow_pickle=True)
+expert_trajs = np.load(f'/home/anthony/data/PPOAgent_trajs.pickle', allow_pickle=True)
 expert_trajs = expert_trajs[:8]
 
 
