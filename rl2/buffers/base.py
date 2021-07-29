@@ -12,14 +12,8 @@ DEFAULT_SIZE = 1024
 class ReplayBuffer:
     def __init__(
             self,
-            size=DEFAULT_SIZE,
-            elements={
-                'state': ((4,), np.float32),
-                'action': ((2,), np.float32),
-                'reward': ((1,), np.float32),
-                'done': ((1,), np.uint8),
-                'next_state': ((4,), np.float32),
-            }
+            size,
+            elements,
     ):
         self.max_size = int(size)
         if isinstance(elements, dict):
@@ -61,7 +55,7 @@ class ReplayBuffer:
 
                 if dtype and dtype.__module__ == 'numpy':
                     setattr(
-                        # np.zeors does not allocate memory
+                        # np.ones cuz np.zeros does not allocate memory
                         self, k, np.ones((self.max_size, *shape), dtype=dtype)
                     )
                 else:
@@ -92,10 +86,10 @@ class ReplayBuffer:
                              '{self.max_size} != {len(value)}')
     '''
 
-    def to_np(self):
+    def to_list(self):
         # tmp
-        l = [getattr(self, key)[:self.curr_size] for key in self.keys]
-        return np.asarray(l)
+
+        return [getattr(self, key)[:self.curr_size] for key in self.keys]
 
     def to_dict(self):
         d = {}
@@ -131,8 +125,9 @@ class ReplayBuffer:
         if idx is None:
             if contiguous > 1:
                 num_traj = num // contiguous
-                traj_idx = np.random.randint(self.curr_size - contiguous,
-                                             size=num_traj)
+                traj_idx = np.random.randint(
+                    self.curr_size - contiguous, size=num_traj
+                )
                 sample_idx = (traj_idx.reshape(-1, 1)
                               + np.arange(contiguous).reshape(1, -1))
                 sample_idx = sample_idx.flatten()
@@ -157,9 +152,9 @@ class ReplayBuffer:
 class ExperienceReplay(ReplayBuffer):
     def __init__(
             self,
-            size=1,
-            state_shape=(1,),
-            action_shape=(1,),
+            state_shape,
+            action_shape,
+            size=DEFAULT_SIZE,
             state_type=np.float32,
             action_type=np.float32
     ):
@@ -192,15 +187,17 @@ class ExperienceReplay(ReplayBuffer):
         )
         if contiguous > 1:
             state = transitions.state.reshape(
-                contiguous, -1, *transitions.state.shape[1:])
+                contiguous, -1, *transitions.state.shape[1:]
+            )
             next_state = transitions.next_state.reshape(
-                contiguous, -1, *transitions.next_state.shape[1:])
-            done = transitions.done.reshape(
-                contiguous, -1)
+                contiguous, -1, *transitions.next_state.shape[1:]
+            )
+            done = transitions.done.reshape(contiguous, -1)
         else:
             state = transitions.state
             next_state = transitions.next_state
             done = transitions.done
+
         output = [state, transitions.action, transitions.reward, done,
                   next_state]
         if return_idx:
@@ -213,25 +210,14 @@ class TemporalMemory(ReplayBuffer):
     def __init__(
             self,
             size: int = DEFAULT_SIZE,
-            num_envs: int = 1,
-            state_shape=(1,),
-            action_shape=(1,),
-            state_type=np.float32,
-            action_type=np.float32,
+            num_envs: int = 2,
     ):
+        assert num_envs > 1, 'TemporalMemory currently works with multiple envs'
         super().__init__(
             size=size,
             elements=['state', 'action', 'reward', 'done', 'value', 'nlp'],
-            # elements={
-            #     'state': (state_shape, np.float32),
-            #     'action': (action_shape, np.float32),
-            #     'reward': ((2,), np.float32),
-            #     'done': ((2,), np.uint8),
-            #     'value': ((2,), np.float32),
-            #     # temporary
-            #     'nlp': ((2,), np.float32),
-            # }
         )
+
         self.num_envs = num_envs
         self.shuffle()
 
@@ -266,59 +252,57 @@ class TemporalMemory(ReplayBuffer):
         # minibatch 뽑는 방법
         # 1. 무조건 random w/ replacement -> randint
         # 2. random w/o replacement -> np.permutation, batchsize 잘라, chunk
-        # -> sample_with_replcaeads
-        if self.num_envs > 1:
-            if recurrent:
-                idx = transitions.idx
-                # sub_idx = np.random.permutation(self.num_envs)[:env_sample_size]
-                sub_idx = self.env_idx_queue[self.start:self.start + num_skip]
-                output = [
-                    transitions.state[:, sub_idx],
-                    transitions.action[:, sub_idx].reshape(-1, 1),
-                    transitions.reward[:, sub_idx].reshape(-1, 1),
-                    transitions.done[:, sub_idx],
-                    transitions.value[:, sub_idx].reshape(-1, 1),
-                    transitions.nlp[:, sub_idx].reshape(-1, 1)
-                ]
-                mesh = np.array(np.meshgrid(idx, sub_idx)).T.reshape(-1, 2).T
-                idx = mesh[0]
-                sub_idx = mesh[1]
-                self.start += num_skip
-                if self.start > self.num_envs:
-                    self.start = 0
-            else:
-                # rand_idx = np.random.permutation(self.curr_size * self.num_envs)[:num]
-                rand_idx = self.time_idx_queue[self.start: self.start + num_skip]
-
-                state = transitions.state
-                scalars = [
-                    transitions.action,
-                    transitions.reward,
-                    transitions.done,
-                    transitions.value,
-                    transitions.nlp
-                ]
-                rstate = state.reshape(-1, *state.shape[2:])
-                rscalars = [el.reshape(-1, 1)[rand_idx] for el in scalars]
-                # state t, e, shape -> t*e, shape
-                # assume
-                output = [
-                    rstate[rand_idx], #
-                    *rscalars
-                ]
-
-                idx = transitions.idx[rand_idx // self.num_envs]
-                sub_idx = rand_idx % self.num_envs
-                self.start += num_skip
-                if self.start > self.curr_size:
-                    self.start = 0
+        # -> sample_with_replacement
+        if recurrent:
+            idx, output, sub_idx = self._handle_recurrent(num_skip, transitions)
         else:
-            raise NotImplementedError
+            # rand_idx = np.random.permutation(self.curr_size * self.num_envs)[:num]
+            rand_idx = self.time_idx_queue[self.start: self.start + num_skip]
+
+            state = transitions.state
+            scalars = [
+                transitions.action,
+                transitions.reward,
+                transitions.done,
+                transitions.value,
+                transitions.nlp
+            ]
+            rstate = state.reshape(-1, *state.shape[2:])
+            rscalars = [el.reshape(-1, 1)[rand_idx] for el in scalars]
+            # state t, e, shape -> t*e, shape
+            # assume
+            output = [rstate[rand_idx], *rscalars]
+
+            idx = transitions.idx[rand_idx // self.num_envs]
+            sub_idx = rand_idx % self.num_envs
+            self.start += num_skip
+            if self.start > self.curr_size:
+                self.start = 0
 
         if return_idx:
             output.append((idx, sub_idx))
 
         return tuple(output)
+
+    def _handle_recurrent(self, num_skip, transitions):
+        idx = transitions.idx
+        # sub_idx = np.random.permutation(self.num_envs)[:env_sample_size]
+        sub_idx = self.env_idx_queue[self.start:self.start + num_skip]
+        output = [
+            transitions.state[:, sub_idx],
+            transitions.action[:, sub_idx].reshape(-1, 1),
+            transitions.reward[:, sub_idx].reshape(-1, 1),
+            transitions.done[:, sub_idx],
+            transitions.value[:, sub_idx].reshape(-1, 1),
+            transitions.nlp[:, sub_idx].reshape(-1, 1)
+        ]
+        mesh = np.array(np.meshgrid(idx, sub_idx)).T.reshape(-1, 2).T
+        idx = mesh[0]
+        sub_idx = mesh[1]
+        self.start += num_skip
+        if self.start > self.num_envs:
+            self.start = 0
+        return idx, output, sub_idx
 
 
 class ReplayBuffer_:

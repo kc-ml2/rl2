@@ -159,7 +159,6 @@ class DQNAgent(Agent):
             log_interval: int = int(1e3),
             train_after: int = int(1e3),
             update_after: int = int(1e3),
-            **kwargs
     ):
         if loss_func is None:
             self.loss_func = loss_func
@@ -239,7 +238,7 @@ class DQNAgent(Agent):
                 self.curr_step > self.train_after)
 
     def train(self):
-        for _ in range(self.num_epochs):
+        for epoch in range(self.num_epochs):
             if self.model.recurrent:
                 contiguous = 8
             else:

@@ -1,31 +1,24 @@
 from typing import Union, List, Tuple
 
+from rl2.buffers import ReplayBuffer
 from rl2.models.base import TorchModel
 from rl2.models.tf.base import TFModel
 
 
 class Agent:
-    """
-    interface.
-    agent has buffer
-    even pg algorhtms use buffer(not the true experience replay buffer but it triggers train when buffer is full)
-    agent counts interactions and do what it needs to do when it needs to be done
-    """
-
     def __init__(
             self,
             model: Union[TorchModel, TFModel],
-            buffer_cls=None,
-            buffer_kwargs={},
-            num_epochs: int = 0,
-            num_envs: int = 1,
-            train_interval: int = 128,
-            eval_interval: int = 0
+            buffer_cls: ReplayBuffer,
+            buffer_kwargs: dict,
+            num_epochs: int,
+            num_envs: int,
+            train_interval: int,
+            eval_interval: int,
     ):
         self.model = model
 
         self.curr_step = 0
-        self.tasks: List[Tuple[callable, callable]] = []
 
         self.train_interval = train_interval
         self.train_at = lambda x: x % self.train_interval == 0
@@ -37,28 +30,20 @@ class Agent:
             self.buffer = buffer_cls(**buffer_kwargs)
 
         self.num_envs = num_envs
-        if self.num_envs == 1:
-            self.done = False
-        else:
-            self.done = [False] * num_envs
+        self._handle_env()
+
         self.obs = None
 
         if self.model.recurrent:
             self.model._init_hidden(self.done)
             self.prev_hidden = self.hidden = self.model.hidden
 
-    @property
-    def hook(self):
-        if self._hook is None:
-            raise AttributeError('hook is not set')
-        return self._hook
-
-    @hook.setter
-    def hook(self, val):
-        self._hook = val
-        self._hook.agent = self
-        print(f'from now, {self._hook}')
-        # self._hook.add_endpoint(endpoint='/act', handler=self.act)
+    def _handle_env(self):
+        # preprocess stuff regarding envs e.g. VecEnv
+        if self.num_envs == 1:
+            self.done = False
+        else:
+            self.done = [False] * self.num_envs
 
     def act(self):
         """
@@ -123,20 +108,6 @@ class MAgent:
                 action_shape=model.action_shape
             )
             self.buffers.append(buffer)
-        self._hook = None
-
-    @property
-    def hook(self):
-        if self._hook is None:
-            raise AttributeError('hook is not set')
-        return self._hook
-
-    @hook.setter
-    def hook(self, val):
-        self._hook = val
-        self._hook.agent = self
-        print(f'from now, {self._hook}')
-        # self._hook.add_endpoint(endpoint='/act', handler=self.act)
 
     def act(self):
         """

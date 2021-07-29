@@ -7,9 +7,12 @@ class EasyDict(dict):
             d.update(**kwargs)
         for k, v in d.items():
             setattr(self, k, v)
+
+        def is_magic_method(k):
+            return k.startswith('__') and k.endswith('__')
         # Class attributes
         for k in self.__class__.__dict__.keys():
-            if not (k.startswith('__') and k.endswith('__')) and not k in ('update', 'pop'):
+            if not is_magic_method(k) and not k in ('update', 'pop'):
                 setattr(self, k, getattr(self, k))
 
     def __setattr__(self, name, value):
@@ -33,3 +36,13 @@ class EasyDict(dict):
     def pop(self, k, d=None):
         delattr(self, k)
         return super(EasyDict, self).pop(k, d)
+
+
+class Timer:
+    def __enter__(self):
+        self.start = time.clock()
+        return self
+
+    def __exit__(self, *args):
+        self.end = time.clock()
+        self.interval = self.end - self.start

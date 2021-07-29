@@ -1,75 +1,40 @@
-import contextvars
 import logging
 import os
 import pickle
 import signal
 import time
 from collections import deque
-from contextvars import ContextVar
 from datetime import datetime
 from pathlib import Path
 from typing import Tuple
 
+import gym
 import numpy as np
 
+from rl2.agents.base import Agent
 from rl2.ctx import var
 
-# from logging import getLogger, Logger
 logger = logging.getLogger(__name__)
 
 
-class Timer:
-    def __enter__(self):
-        self.start = time.clock()
-        return self
-
-    def __exit__(self, *args):
-        self.end = time.clock()
-        self.interval = self.end - self.start
-
-
 class RolloutWorker:
-    """
-    workers mimics the intuitive loop btw agent and env
-
-    if worker is to serve as some entrypoint for an app,
-    worker might need context so everything is under control of workers
-
-    rl2's base unit is a step(1 interaction per se)
-    """
-
     def __init__(
             self,
-            env,
-            agent,
-            num_envs=1,
-            train_config=None,
-            render_interval=0,
-            save_interval=0,
+            env: gym.Env,
+            agent: Agent,
+            render_interval: int = 0,
+            save_interval: int = 0,
+            log_interval: int = 0,
             save_erange: Tuple[int, int] = None,  # range of episodes
-            **kwargs
+            render_mode: str = '',
     ):
         config = var.get()
         self.base_log_dir = config['log_dir']
 
         self.env = env
         self.agent = agent
-        self.num_envs = num_envs
-        if train_config is not None:
-            self.set_mode(train=True)
-            self.train_config = train_config
-        else:
-            self.set_mode(train=False)
-
-        # self.training = training
-
-        # self.render = render
-        # if self.render:
         self.render_interval = render_interval
-        self.render_mode = kwargs.get('render_mode', 'rgb_array')
-
-        # self.is_save = is_save
-        # if self.save_interval > 0:
+        self.render_mode = render_mode
         self.save_interval = save_interval
 
         self.curr_episode = 0
@@ -106,7 +71,7 @@ class RolloutWorker:
             try:
                 self.save_model()
             except Exception as e:
-                print(e)
+                logger.warning(f'saving model failed, {e}')
 
         logging.info(f'Time elapsed {self.end_dt - self.start_dt}.')
         logging.info(f'Ran from {self.start_dt} to {self.end_dt}.')
@@ -126,7 +91,7 @@ class RolloutWorker:
 
     def as_saving(self, tensorboard=True, saved_model=True):
         self.saving_model = saved_model
-        self.saving_tensorboard_summary = tensorboard
+        self.tensorboard = tensorboard
 
         return self
 
@@ -184,17 +149,17 @@ class RolloutWorker:
                 action = action.squeeze(0)
         obs, reward, done, env_info = self.env.step(action)
 
-        if self.train_mode:
-            agent_info = self.agent.step(self.obs, action, reward, done, obs)
-            if env_info:
-                if isinstance(env_info, dict):
-                    env_info = {**env_info, **agent_info}
-                elif isinstance(env_info, list) or isinstance(env_info, tuple):
-                    env_info = {**agent_info}
-            else:
-                env_info = {**agent_info}
+        # if self.train_mode:
+        agent_info = self.agent.step(self.obs, action, reward, done, obs)
+        # if env_info:
+        #     if isinstance(env_info, dict):
+        #         env_info = {**env_info, **agent_info}
+        #     elif isinstance(env_info, list) or isinstance(env_info, tuple):
+        #         env_info = {**agent_info}
+        # else:
+        #     env_info = {**agent_info}
 
-        self.num_steps += self.num_envs
+        self.num_steps += self.agent.num_envs
         self.episode_score = self.episode_score + np.array(reward)
         self.episode_steps = self.episode_steps + np.ones_like(done, np.int)
 
@@ -240,25 +205,35 @@ class MaxStepWorker(RolloutWorker):
 
     def __init__(
             self,
-            env,
-            agent,
-            num_envs=1,
-            max_steps=1000,
+            env: gym.Env,
+            agent: Agent,
+            max_steps: int = 10,
+            log_interval: int = 1,
+            render_interval: int = 128,
+            save_interval: int = 128,
+            save_erange: Tuple[int, int] = None,
+            render_mode: str = None,
             logger=None,
-            log_interval=5000,
-            **kwargs
     ):
-        super().__init__(env=env, agent=agent, num_envs=num_envs, **kwargs)
+        super().__init__(
+            env=env,
+            agent=agent,
+            log_interval=log_interval,
+            render_interval=render_interval,
+            save_interval=save_interval,
+            save_erange=save_erange,
+            render_mode=render_mode,
+        )
         self.max_steps = int(max_steps)
-        self.log_interval = int(log_interval)
-        self.logger = logger
         self.info = {}
+
+        self.logger = logger
         self.store_image = False
         self.start_log_image = False
         self.time_to_log_image = False
 
     def run(self):
-        steps_per_env = (self.max_steps // self.num_envs) + 1
+        steps_per_env = (self.max_steps // self.agent.num_envs) + 1
         for step in range(steps_per_env):
             done, info, results = self.rollout()
             self.worker_log(done)
@@ -268,7 +243,7 @@ class MaxStepWorker(RolloutWorker):
 
     def save_at(self):
         return (self.save_interval > 0) and (
-                (self.num_steps % self.save_interval) < self.num_envs)
+                (self.num_steps % self.save_interval) < self.agent.num_envs)
 
     # def save_model(self):
     #     if hasattr(self, 'logger'):
@@ -281,7 +256,7 @@ class MaxStepWorker(RolloutWorker):
     def worker_log(self, done):
         # Save rendered image as gif
         # if self.render_interval > 0:
-        #     if (self.num_steps % self.render_interval) < self.num_envs:
+        #     if (self.num_steps % self.render_interval) < self.agent.num_envs:
         #         self.time_to_log_image = True
         #
         #     cond = done if np.asarray(done).size == 1 else done[0]
@@ -302,7 +277,7 @@ class MaxStepWorker(RolloutWorker):
         #         )
         #         self.store_image = False
         # Log info
-        # if self.num_steps % self.log_interval < self.num_envs:
+        # if self.num_steps % self.log_interval < self.agent.num_envs:
         info_r = {
             'Counts/num_steps': self.num_steps,
             'Counts/num_episodes': self.curr_episode,
@@ -323,17 +298,25 @@ class EpisodicWorker(RolloutWorker):
 
     def __init__(
             self,
-            env,
-            agent,
+            env: gym.Env,
+            agent: Agent,
             max_episodes: int = 10,
             log_interval: int = 1,
-            logger=None,
-            **kwargs
+            render_interval: int = 128,
+            save_interval: int = 128,
+            save_erange: Tuple[int, int] = None,
+            render_mode: str = None,
     ):
-        super().__init__(env, agent, **kwargs)
+        super().__init__(
+            env=env,
+            agent=agent,
+            log_interval=log_interval,
+            render_interval=render_interval,
+            save_interval=save_interval,
+            save_erange=save_erange,
+            render_mode=render_mode,
+        )
         self.max_episodes = int(max_episodes)
-        self.log_interval = int(log_interval)
-        self.logger = logger
         self.info = {}
         self.store_image = False
         self.start_log_image = False

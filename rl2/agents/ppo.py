@@ -159,59 +159,37 @@ class PPOAgent(Agent):
             self,
             model: TorchModel,
             train_interval: int = 0,
+            eval_interval: int = 0,
             num_epochs: int = 1,
             num_envs: int = 1,
             buffer_cls: ReplayBuffer = TemporalMemory,
             buffer_kwargs: dict = {},
             batch_size: int = 128,
-            val_coef: float = 0.5,
-            action_low: np.array = None,
-            action_high: np.ndarray = None,
             loss_func: Callable = loss_func,
-            save_interval: int = int(1e5),
             update_after: int = 1,
+            val_coef: float = 0.5,
             gamma: float = 0.99,
             lamda: float = 0.95,
-            log_interval: int = int(1e3),
-            # use_gail=False,
-            **kwargs
     ):
         super().__init__(
             model,
             train_interval=train_interval,
+            eval_interval=eval_interval,
             num_epochs=num_epochs,
             buffer_cls=buffer_cls,
             buffer_kwargs=buffer_kwargs,
             num_envs=num_envs,
-            **kwargs
         )
-        # self.use_gail = use_gail
-        # if self.use_gail:
-        #     self.discriminator = kwargs.pop('discriminator')
-        #     self.expert_trajs = kwargs.pop('expert_trajs')
-
         self.obs = None
-        # self.num_envs = num_envs
-        # if self.num_envs == 1:
-        #     self.done = False
-        # else:
-        #     self.done = [False] * num_envs
         self.gamma = gamma
         self.batch_size = batch_size
-        self.update_after = 1
+        self.update_after = update_after
 
         self.value = None
         self.nlp = None
         self.loss_func = loss_func
         self.val_coef = val_coef
         self.lamda = lamda
-
-        """common"""
-
-        # # TODO: For rnn encoding. Should this be moved to base class?
-        # self.model._init_hidden(self.done)
-        # self.hidden = self.model.hidden
-        # self.pre_hidden = self.hidden
 
     def act(self, obs):
         action, info = self.model.act(obs, get_log_prob=True)
@@ -242,12 +220,6 @@ class PPOAgent(Agent):
 
         info = {}
         if self.train_at(self.curr_step):
-            # if self.use_gail:
-            #     adata, data, edata = self.gail_data()
-            #     output = self.discriminator(data).mean
-            #     self.discriminate(adata, edata, output)
-            #     self._update_rew()
-
             value = self.model.val(next_state)
             advs = general_advantage_estimation(
                 self.buffer.to_dict(), value, done, self.gamma, self.lamda
@@ -260,19 +232,6 @@ class PPOAgent(Agent):
 
         return info
 
-    def gail_data(self):
-        edata, adata = self.pack_data()
-        data = np.concatenate([edata, adata])
-        data = torch.FloatTensor(data).to(self.discriminator.device)
-        return adata, data, edata
-
-    def discriminate(self, adata, edata, output__):
-        output = torch.flatten(output__)
-        elabels = torch.ones(len(edata)).to(self.discriminator.device)
-        alabels = torch.zeros(len(adata)).to(self.discriminator.device)
-        labels = torch.cat([elabels, alabels])
-        loss = F.binary_cross_entropy_with_logits(output, labels)
-        self.discriminator.step(loss)
 
     def train(self, advs, **kwargs):
         losses = []

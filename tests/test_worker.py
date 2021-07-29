@@ -1,11 +1,11 @@
 import pickle
 from logging import Logger
-from pprint import pprint
 from tempfile import TemporaryFile
 
 import gym
 from torch import nn
 
+from rl2.agents.base import Agent
 from rl2.workers import RolloutWorker
 
 logger = Logger(__name__)
@@ -21,14 +21,14 @@ class CustomWorker(RolloutWorker):
             self.rollout()
 
 
-def test_agent_cls(action_space):
-    class RandomAgent:
+def random_agent_cls(action_space):
+    class RandomAgent(Agent):
         def __init__(self, model):
             self.model = model
+            self.num_envs = 2
 
         def act(self, x):
             action = action_space.sample()
-            logger.info(action)
             return action_space.sample()
 
         def collect(self, state, action, reward, done, next_state):
@@ -53,7 +53,7 @@ def test_model_cls():
 
 env = gym.make('CartPole-v0')
 model = test_model_cls()
-agent_cls = test_agent_cls(env.action_space)
+agent_cls = random_agent_cls(env.action_space)
 agent = agent_cls(model)
 
 
@@ -77,12 +77,7 @@ def test_save_trajectories():
         worker.run()
 
     with TemporaryFile() as fp:
-        # filename = 'expert_data.pickle'
-        # with open(fp.name, 'wb') as fp:
         pickle.dump(worker.trajectories, fp)
-        # print(worker.trajectories)
         fp.seek(0)
-        # with open(filename, 'rb') as fp:
         data = pickle.load(fp)
-        pprint(data)
         assert len(data) == elength

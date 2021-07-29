@@ -1,24 +1,23 @@
 import pickle
-import random
 from typing import List, Tuple
 
 import numpy as np
 import torch
-from torch import nn
 from marlenv.wrappers import make_snake
 from torch.utils.data import Dataset, DataLoader
 
 from rl2 import TEST_DATA_DIR
-from rl2.agents.base import Agent
 from rl2.agents import PPOAgent
+from rl2.agents.base import Agent
 from rl2.agents.ppo import PPOModel
 from rl2.agents.utils import general_advantage_estimation
 from rl2.models.base import BranchModel
-from rl2.ctx import var
-from rl2.workers import RolloutWorker, MaxStepWorker
+from rl2.workers import MaxStepWorker
+
+TRAIN_INTERVAL = 128
+BATCH_SIZE = 16
 
 e, o, a, p = make_snake(num_envs=3, num_snakes=1, vision_range=5, frame_stack=2)
-BATCH_SIZE = 16
 
 
 def disc_loss_fn(logits, labels):
@@ -92,10 +91,6 @@ discriminatior = BranchModel(
     deterministic=True,
     flatten=True
 )
-"""
-multiple inherit vs composition
-meta class usage
-"""
 
 
 class AdversarialImitationMixin:
@@ -121,29 +116,6 @@ def flatten_concat(states, actions, one_hot):
     ret = torch.from_numpy(ret).float()
 
     return ret
-
-
-class AILAgent(AdversarialImitationMixin, Agent):
-    def __init__(self):
-        pass
-
-    def act(self):
-        pass
-
-    def collect(self, state, action, reward, done, next_state):
-        pass
-
-    def train(self):
-        pass
-
-    def step(self):
-        pass
-
-    def discrimination_reward(self):
-        pass
-
-    def train_discriminator(self):
-        pass
 
 
 class GAILAgent(AdversarialImitationMixin, PPOAgent):
@@ -224,7 +196,6 @@ class GAILAgent(AdversarialImitationMixin, PPOAgent):
                     one_hot,
                 ).to(self.discriminator.device)
 
-                # adversary data label == 0
                 buffer_labels = torch.zeros(len(buffer_batch)).to(
                     self.discriminator.device
                 )
@@ -233,69 +204,18 @@ class GAILAgent(AdversarialImitationMixin, PPOAgent):
                 prob = self.discriminator(batch)
                 logits = prob.mean.squeeze()
 
-                # with torch.no_grad():
                 disc_loss = self.disc_loss_fn(logits, labels, self.outer_shape)
                 info = self.discriminator.step(disc_loss)
 
         return info
 
 
-vdb = BranchModel(
-    observation_shape=o,
-    action_shape=a,
-    deterministic=False,
-    discrete=False,
-)
-
-
-def vail_disc_loss_fn(expert_dist, adversarial_dist):
-    kl_loss = expert_dist.kl(adversarial_dist)
-    loss = disc_loss + kl_loss * beta
-
-
-class VAILAgent(GAILAgent):
-    """
-    1. different discriminator; add bottleneck
-    2. regularize loss with kl
-    """
-
-    def __init__(
-            self,
-            model,
-            discriminator,
-            expert_trajs: FlatExpertTrajectory,
-            one_hot,
-            num_envs,
-            **kwargs,
-    ):
-        PPOAgent.__init__(model=model, num_envs=num_envs, **kwargs)
-        self.discriminator = discriminator
-        self.expert_trajs = expert_trajs
-        self.disc_batch_size = BATCH_SIZE
-        self.disc_epochs = 10
-        self.expert_traj_loader = DataLoader(
-            expert_trajs,
-            batch_size=self.disc_batch_size
-        )
-        self.one_hot = one_hot
-        self.outer_shape = (self.train_interval, self.num_envs)
-        self.disc_loss_fn = vail_disc_loss_fn
-
-
-TRAIN_INTERVAL = 128
-BATCH_SIZE = 16
-
 if __name__ == '__main__':
-    # how can we integrate num_envs?
-    # set it in worker, lazy init else where...
-
-    # config = var.get('config')
-    # list vs element for single agent... marlenv...
     one_hot = np.eye(e.action_space[0].n)
     expert_trajs = FlatExpertTrajectory(num_episodes=8, one_hot=one_hot)
     expert_trajs.load_pickle(f'{TEST_DATA_DIR}/PPOAgent_trajs.pickle')
     model = PPOModel(o, a)
-    agent = VAILAgent(
+    agent = GAILAgent(
         model=model,
         discriminator=discriminatior,
         expert_trajs=expert_trajs,
@@ -303,17 +223,11 @@ if __name__ == '__main__':
         num_envs=p['num_envs'],
         buffer_kwargs={
             'size': TRAIN_INTERVAL,
-            'num_envs': p['num_envs'],
         },
         one_hot=one_hot
     )
 
-    worker = MaxStepWorker(e, agent, max_steps=1024, num_envs=p['num_envs'],
-                           render_interval=1)
+    worker = MaxStepWorker(e, agent, max_steps=1024, render_interval=16)
     worker.set_mode(train=True)
     with worker.as_saving(tensorboard=False, saved_model=False):
         worker.run()
-
-# Worker <-> Agent
-# Agent <-> Model
-# Agent <-> Buffer (strongly coupled)

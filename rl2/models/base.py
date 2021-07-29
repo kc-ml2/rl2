@@ -37,8 +37,6 @@ class TorchModel(nn.Module):
             action_shape: tuple,
             device: str = None,
             recurrent: bool = False,
-            *args,
-            **kwargs
     ):
         super().__init__()
         self.observation_shape = observation_shape
@@ -230,7 +228,8 @@ class BranchModel(TorchModel):
             encoded_dim=64,
             head=None,
             optimizer='torch.optim.Adam',
-            lr=1e-4,
+            optimizer_kwargs = {},
+            lr=None,
             grad_clip=1.0,
             make_target=False,
             discrete=True,
@@ -240,14 +239,13 @@ class BranchModel(TorchModel):
             default=True,
             head_depth=1,
             recurrent=False,
-            **kwargs
+            device=None,
+            high=1,
     ):
-        device = kwargs.get('device')
         super().__init__(
             observation_shape, action_shape, device
         )
-        optim_args = kwargs.get('optim_args', {})
-        high = kwargs.get('high', 1)
+        self.high = high
 
         self.discrete = discrete
         self.deterministic = deterministic
@@ -268,8 +266,10 @@ class BranchModel(TorchModel):
             depth=head_depth,
         ).to(self.device)
 
+        if lr is not None:
+            optimizer_kwargs['lr'] = lr
         self.optimizer = self.get_optimizer_by_name(
-            [self.encoder, self.head], optimizer, **optim_args
+            [self.encoder, self.head], optimizer, **optimizer_kwargs
         )
         self.encoder_target = None
         self.head_target = None
@@ -330,7 +330,7 @@ class BranchModel(TorchModel):
             if deterministic:
                 distribution = 'Scalar'
             else:
-                distribution = 'Gaussian'
+                distribution = 'DiagGaussian'
                 # TODO: Add other distributions
                 # ex) GMM, quantile, beta, etc.
         head = getattr(dist, distribution + 'Head')(*dims, module=head)
@@ -395,15 +395,9 @@ class BranchModel(TorchModel):
         self.optimizer.step()
 
     def save(self):
-        """
-        TODO: implement vanila q learning
-        """
         raise NotImplementedError
 
     def load(self):
-        """
-        TODO: implement vanila q learning
-        """
         raise NotImplementedError
 
 
@@ -417,6 +411,7 @@ class InjectiveBranchModel(BranchModel):
             encoded_dim=64,
             head=None,
             optimizer='torch.optim.Adam',
+            optim_kwargs={},
             lr=1e-4,
             grad_clip=1.0,
             make_target=False,
@@ -434,7 +429,7 @@ class InjectiveBranchModel(BranchModel):
             deterministic=deterministic, default=default, reorder=reorder,
             flatten=flatten, **kwargs
         )
-        optim_args = kwargs.get('optim_args', {})
+        optim_kwargs = optim_kwargs
 
         if (not encoder and not default) or flatten:
             # Observation space will be the encoded space
@@ -445,7 +440,7 @@ class InjectiveBranchModel(BranchModel):
         ).to(self.device)
 
         self.optimizer = self.get_optimizer_by_name(
-            [self.encoder, self.head], optimizer, **optim_args
+            [self.encoder, self.head], optimizer, **optim_kwargs
         )
         self.head_target = None
         if make_target:

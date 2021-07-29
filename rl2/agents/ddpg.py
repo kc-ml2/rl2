@@ -12,7 +12,7 @@ from rl2.models.base import TorchModel
 from rl2.models.base import InjectiveBranchModel, BranchModel
 
 
-def loss_func_ac(data, model, **kwargs):
+def actor_loss_fn(data, model, **kwargs):
     s = torch.from_numpy(data[0]).float().to(model.device)
     mu = model.mu(s).mean
     if not model.discrete:
@@ -23,18 +23,18 @@ def loss_func_ac(data, model, **kwargs):
     return loss
 
 
-def loss_func_cr(data, model, **kwargs):
+def critic_loss_fn(data, model, **kwargs):
     state, action, reward, done, next_state = tuple(
         map(lambda x: torch.from_numpy(x).float().to(model.device), data)
     )
     with torch.no_grad():
-        a_trg = model.mu.forward_target(s_).mean
+        a_trg = model.mu.forward_target(next_state).mean
         if not model.discrete:
             a_trg = torch.tanh(a_trg)
-        v_trg = model.q.forward_target(s_, a_trg).mean
-        bellman_trg = r + kwargs['gamma'] * v_trg * (1 - d)
+        v_trg = model.q.forward_target(next_state, a_trg).mean
+        bellman_trg = reward + kwargs['gamma'] * v_trg * (1 - done)
 
-    q = model.q(s, a).mean
+    q = model.q(state, action).mean
     loss = F.smooth_l1_loss(q, bellman_trg)
 
     return loss
@@ -235,8 +235,8 @@ class DDPGAgent(Agent):
             explore: bool = True,
             action_low: np.ndarray = None,
             action_high: np.ndarray = None,
-            loss_func_ac: Callable = loss_func_ac,
-            loss_func_cr: Callable = loss_func_cr,
+            actor_loss_fn: Callable = actor_loss_fn,
+            critic_loss_fn: Callable = critic_loss_fn,
             save_interval: int = int(1e6),
             eps: float = 0.1,
             gamma: float = 0.99,
@@ -245,10 +245,10 @@ class DDPGAgent(Agent):
             update_after: int = int(1e3),
             **kwargs
     ):
-        if loss_func_cr is None:
-            self.loss_func_cr = loss_func_cr
-        if loss_func_ac is None:
-            self.loss_func_ac = loss_func_ac
+        if critic_loss_fn is None:
+            self.critic_loss_fn = critic_loss_fn
+        if actor_loss_fn is None:
+            self.actor_loss_fn = actor_loss_fn
         self.loss_func_cr_mix = loss_func_cr_mix
 
         self.buffer_size = buffer_size
@@ -287,8 +287,8 @@ class DDPGAgent(Agent):
             self.log_dir = self.logger.log_dir
 
         # Set loss functions
-        self.loss_func_ac = loss_func_ac
-        self.loss_func_cr = loss_func_cr
+        self.actor_loss_fn = actor_loss_fn
+        self.critic_loss_fn = critic_loss_fn
 
         # For recurrent intermediate representation
         self.done = False
@@ -358,17 +358,17 @@ class DDPGAgent(Agent):
     def train(self):
         for _ in range(self.num_epochs):
             batch = self.buffer.sample(self.batch_size)
-            cl = self.loss_func_cr(batch, self.model, gamma=self.gamma)
+            critic_loss = self.critic_loss_fn(batch, self.model, gamma=self.gamma)
             # cl_mix = self.loss_func_cr_mix(batch, self.model)
-            self.model.q.step(cl)
+            self.model.q.step(critic_loss)
             # self.model.q.step(cl+cl_mix)
 
-            al = self.loss_func_ac(batch, self.model)
-            self.model.mu.step(al)
+            actor_loss = self.actor_loss_fn(batch, self.model)
+            self.model.mu.step(actor_loss)
 
         info = {
-            'Loss/Actor': al.item(),
-            'Loss/Critic': cl.item()
+            'Loss/Actor': actor_loss.item(),
+            'Loss/Critic': critic_loss.item()
         }
 
         return info

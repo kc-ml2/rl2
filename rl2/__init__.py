@@ -1,3 +1,5 @@
+TEST_DATA_DIR = '/Users/anthony/data'
+
 DEFAULT_FRAMEWORK = 'torch'
 
 
