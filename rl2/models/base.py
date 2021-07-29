@@ -1,19 +1,17 @@
+import copy
 import importlib
+import itertools
 from types import FunctionType
 from typing import Iterable
-import itertools
-import copy
 
 import numpy as np
-
 import torch
-from torch import nn
-
 import torch.nn.functional as F
+from torch import nn
 from torch.optim.optimizer import Optimizer
 
+from rl2 import networks
 from rl2.networks.core import MLP, ConvEnc, LSTM
-import rl2.distributions as dist
 
 """
 interface that can handle most of the recent algorithms. (PG, Qlearning)
@@ -311,7 +309,7 @@ class BranchModel(TorchModel):
             raise ValueError("Cannot create a default encoder for "
                              "observation of dimension > 3 or 2")
 
-    def _handle_head(self, head, action_shape, encoded_dim,
+    def _handle_head(self, module, action_shape, encoded_dim,
                      discrete, deterministic, depth=0):
         # User may have given the head module.
         # Validate that head is compatible with the parameterization
@@ -323,17 +321,16 @@ class BranchModel(TorchModel):
                 # distribution = 'GumbelSoftmax'
                 # Change for dqn default head
                 # remove GumbelSoftmax if DPG cant handle discrete action_space
-                distribution = 'Scalar'
+                head = networks.ScalarHead(*dims, module=module)
             else:
-                distribution = 'Categorical'
+                head = networks.CategoricalHead(*dims, module=module)
         else:
             if deterministic:
-                distribution = 'Scalar'
+                head = networks.ScalarHead(*dims, module=module)
             else:
-                distribution = 'DiagGaussian'
                 # TODO: Add other distributions
                 # ex) GMM, quantile, beta, etc.
-        head = getattr(dist, distribution + 'Head')(*dims, module=head)
+                head = networks.DiagGaussianHead(*dims, module=module)
 
         return head
 
