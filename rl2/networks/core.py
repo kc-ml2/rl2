@@ -63,7 +63,7 @@ class LSTM(nn.Module):
 
 
 class ConvEnc(nn.Module):
-    def __init__(self, in_shape, encoded_dim, high=255, activ='ReLU'):
+    def __init__(self, in_shape, encoded_dim, high=255., activ='ReLU'):
         super().__init__()
         assert len(in_shape) == 3
         # Assume the input is (C, H, W)
@@ -86,10 +86,10 @@ class ConvEnc(nn.Module):
         activ = getattr(nn, activ)()
         self.fc = nn.Sequential(nn.Linear(conv_dim, encoded_dim), activ)
 
-        self.norm = high
+        self.high = high
 
     def forward(self, x):
-        x = x / 1.
+        x = x / self.high
         x = self.conv(x)
         x = x.reshape(x.shape[0], -1)
         x = self.fc(x)
@@ -98,7 +98,7 @@ class ConvEnc(nn.Module):
 
 
 class DeepMindEnc(nn.Module):
-    def __init__(self, input_shape, hidden_dim=256):
+    def __init__(self, input_shape, hidden_dim=256, high=255.):
         super().__init__()
         self.feature = nn.Sequential(
             nn.Conv2d(input_shape[0], 32, 8, stride=4),
@@ -117,7 +117,10 @@ class DeepMindEnc(nn.Module):
             nn.ReLU()
         )
 
+        self.high = high
+
     def forward(self, x):
+        x = x / self.high
         x = self.feature(x)
         x = x.reshape(x.size(0), -1)
         out = self.fc(x)

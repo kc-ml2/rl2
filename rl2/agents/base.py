@@ -1,4 +1,4 @@
-from typing import Union, List, Tuple
+from typing import Union, List
 
 from rl2.buffers import ReplayBuffer
 from rl2.models.base import TorchModel
@@ -14,14 +14,14 @@ class Agent:
             num_epochs: int,
             num_envs: int,
             train_interval: int,
-            eval_interval: int,
+            eval_interval: int = 0.13,
     ):
         self.model = model
 
         self.curr_step = 0
 
         self.train_interval = train_interval
-        self.train_at = lambda x: x % self.train_interval == 0
+        # self.train_at = lambda x: x % self.train_interval == 0
         self.eval_interval = eval_interval
         self.eval_at = lambda x: x % self.eval_interval == 0
 
@@ -80,8 +80,10 @@ class MAgent:
     """
     interface.
     agent has buffer
-    even pg algorhtms use buffer(not the true experience replay buffer but it triggers train when buffer is full)
-    agent counts interactions and do what it needs to do when it needs to be done
+    even pg algorhtms use buffer(not the true experience replay buffer but it
+    triggers train when buffer is full)
+    agent counts interactions and do what it needs to do
+    when it needs to be done
     """
 
     def __init__(
@@ -99,7 +101,7 @@ class MAgent:
 
         self.num_epochs = num_epochs
 
-        num_agents = len(models)
+        # num_agents = len(models)
         self.buffers = []
         for model in self.models:
             buffer = buffer_cls(

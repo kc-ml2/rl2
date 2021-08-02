@@ -54,8 +54,8 @@ class ReplayBuffer:
                 assert isinstance(shape, Iterable), 'Non-iterable shape given'
 
                 if dtype and dtype.__module__ == 'numpy':
+                    # np.ones cuz np.zeros does not allocate memory
                     setattr(
-                        # np.ones cuz np.zeros does not allocate memory
                         self, k, np.ones((self.max_size, *shape), dtype=dtype)
                     )
                 else:
@@ -135,7 +135,7 @@ class ReplayBuffer:
             else:
                 sample_idx = np.random.randint(self.curr_size, size=num)
         else:
-            sample_idx = idx
+            sample_idx = np.asarray(idx)
         samples = self[sample_idx]
         if return_idx:
             samples.append(sample_idx)
@@ -151,12 +151,12 @@ class ReplayBuffer:
 
 class ExperienceReplay(ReplayBuffer):
     def __init__(
-            self,
-            state_shape,
-            action_shape,
-            size=DEFAULT_SIZE,
-            state_type=np.float32,
-            action_type=np.float32
+        self,
+        size: int = DEFAULT_SIZE,
+        state_shape: tuple = (1,),
+        action_shape: tuple = (1,),
+        state_type: type = np.float32,
+        action_type: type = np.float32
     ):
         super().__init__(
             size,
@@ -165,41 +165,48 @@ class ExperienceReplay(ReplayBuffer):
                 'action': (action_shape, action_type),
                 'reward': ((1,), np.float32),
                 'done': ((1,), np.uint8),
-                'next_state': (state_shape, state_type)
             }
         )
+        self.state_type = state_type
+        self.action_type = action_type
+        self.next_state = None
 
     def reset(self):
         super().reset()
 
     def push(self, state, action, reward, done, next_state):
-        super().push(
-            state=state, action=action, reward=reward, done=done,
-            next_state=next_state
-        )
+        state = state.astype(self.state_type)
+        action = action.astype(self.action_type)
+        self.next_state = next_state
+        super().push(state=state, action=action, reward=reward, done=done)
 
     def sample(self, num, idx=None, return_idx=False, contiguous=1):
         transitions = super().sample(
             num,
             idx=idx,
-            return_idx=return_idx,
+            return_idx=True,
             contiguous=contiguous
         )
+        idx_ = (transitions.idx + 1) % self.curr_size
+        next_state = super().sample(num, idx=idx_).state
+        _tmp = [1] * (len(next_state.shape) - 1)
+        mask = (idx_ == self.curr_idx).reshape(-1, *_tmp)
+        next_state = next_state + mask * (self.next_state - next_state)
         if contiguous > 1:
             state = transitions.state.reshape(
                 contiguous, -1, *transitions.state.shape[1:]
             )
-            next_state = transitions.next_state.reshape(
-                contiguous, -1, *transitions.next_state.shape[1:]
+            next_state = next_state.reshape(
+                contiguous, -1, *next_state.shape[1:]
             )
             done = transitions.done.reshape(contiguous, -1)
         else:
             state = transitions.state
-            next_state = transitions.next_state
             done = transitions.done
 
         output = [state, transitions.action, transitions.reward, done,
                   next_state]
+        output = list(map(lambda x: x.astype(np.float32), output))
         if return_idx:
             output.append(transitions.idx)
 
@@ -212,7 +219,8 @@ class TemporalMemory(ReplayBuffer):
             size: int = DEFAULT_SIZE,
             num_envs: int = 2,
     ):
-        assert num_envs > 1, 'TemporalMemory currently works with multiple envs'
+        assert num_envs > 1, 'TemporalMemory only currently works with '
+        'multiple envs'
         super().__init__(
             size=size,
             elements=['state', 'action', 'reward', 'done', 'value', 'nlp'],
@@ -225,7 +233,7 @@ class TemporalMemory(ReplayBuffer):
         self.time_idx_queue = np.random.permutation(
             self.max_size * self.num_envs
         )
-        # self.time_idx_queue = np.random.permutation(self.max_size)
+        self.time_idx_queue = np.random.permutation(self.max_size)
         self.env_idx_queue = np.random.permutation(self.num_envs)
         self.start = 0
 
@@ -254,9 +262,9 @@ class TemporalMemory(ReplayBuffer):
         # 2. random w/o replacement -> np.permutation, batchsize 잘라, chunk
         # -> sample_with_replacement
         if recurrent:
-            idx, output, sub_idx = self._handle_recurrent(num_skip, transitions)
+            idx, output, sub_idx = self._handle_recurrent(num_skip,
+                                                          transitions)
         else:
-            # rand_idx = np.random.permutation(self.curr_size * self.num_envs)[:num]
             rand_idx = self.time_idx_queue[self.start: self.start + num_skip]
 
             state = transitions.state

@@ -14,24 +14,27 @@ def loss_func(data, model, hidden=None, **kwargs):
     state, action, reward, done, next_state = tuple(
         map(lambda x: torch.from_numpy(x).float().to(model.device), data)
     )
-    done_mask = copy.deepcopy(d)
+    done_mask = copy.deepcopy(done)
     if model.recurrent:
         done_mask[:, 0] = 1
-    done_mask_ = d
+    done_mask_ = done
     with torch.no_grad():
         if model.recurrent:
-            q_next_trg = model.q.forward_target(s_, mask=done_mask_)[0].mean
+            q_next_trg = model.q.forward_target(next_state,
+                                                mask=done_mask_)[0].mean
         else:
-            q_next_trg = model.q.forward_target(s_, mask=done_mask_).mean
+            q_next_trg = model.q.forward_target(next_state,
+                                                mask=done_mask_).mean
         if model.double:
-            q_next = model(s_, mask=done_mask).mean
+            q_next = model(next_state, mask=done_mask).mean
             a_ = torch.argmax(q_next, dim=-1, keepdim=True)
             v_trg = torch.gather(q_next_trg, dim=-1, index=a_)
         else:
             v_trg = torch.max(q_next_trg, dim=-1, keepdim=True).values
-        bellman_trg = r + kwargs['gamma'] * v_trg * (1 - d.reshape(-1, 1))
+        bellman_trg = reward + kwargs['gamma'] * v_trg * (1 - done)
 
-    q = torch.sum((model(s, mask=done_mask).mean * a), dim=-1, keepdim=True)
+    q = torch.gather(model(state, mask=done_mask).mean,
+                     dim=-1, index=action.long())
     loss = F.smooth_l1_loss(q, bellman_trg)
 
     return loss
@@ -51,16 +54,17 @@ class DQNModel(TorchModel):
                  double: bool = False,  # Double DQN if True
                  optimizer: str = 'torch.optim.RMSprop',
                  lr: float = 1e-4,
-                 grad_clip: float = 1,
+                 grad_clip: float = 1.,
                  polyak: float = float(0),
                  discrete: bool = True,
                  flatten: bool = False,
                  reorder: bool = False,
                  recurrent: bool = False,
+                 high: float = 1.,
                  **kwargs):
         super().__init__(observation_shape, action_shape, **kwargs)
-        if hasattr(encoder, 'output_shape'):
-            encoded_dim = encoder.output_shape
+        if hasattr(encoder, 'out_shape'):
+            encoded_dim = encoder.out_shape
         self.encoded_dim = encoded_dim
         self.recurrent = recurrent
         self.is_save = kwargs.get('is_save', False)
@@ -72,14 +76,15 @@ class DQNModel(TorchModel):
         self.polyak = polyak
 
         # Set default RMSprop optim_args
-        if optimizer == 'torch.optim.RMSprop':
-            kwargs.setdefault('optim_args', {'alpha': 0.95,
-                                             'eps': 0.00001,
-                                             'momentum': 0.0,
-                                             'centered': True})
+        # if optimizer == 'torch.optim.RMSprop':
+        #     kwargs.setdefault('optimizer_kwargs', {'alpha': 0.95,
+        #                                            'eps': 0.00001,
+        #                                            'momentum': 0.0,
+        #                                            'centered': True})
 
         self.q = BranchModel(observation_shape,
                              action_shape,
+                             encoder=encoder,
                              encoded_dim=encoded_dim,
                              optimizer=optimizer,
                              lr=lr,
@@ -91,6 +96,7 @@ class DQNModel(TorchModel):
                              reorder=reorder,
                              flatten=flatten,
                              head_depth=1,
+                             high=high,
                              **kwargs)
         self.init_params(self.q)
 
@@ -143,11 +149,12 @@ class DQNAgent(Agent):
     def __init__(
             self,
             model: DQNModel,
-            update_interval: int = 10000,
             train_interval: int = 1,
+            update_interval: int = 10000,
             num_epochs: int = 1,
             buffer_cls: Type[ReplayBuffer] = ExperienceReplay,
             buffer_size: int = int(1e6),
+            state_type=np.uint8,
             buffer_kwargs: dict = {},
             batch_size: int = 32,
             explore: bool = True,
@@ -164,17 +171,22 @@ class DQNAgent(Agent):
             self.loss_func = loss_func
 
         self.buffer_size = buffer_size
-        if buffer_kwargs is None:
-            buffer_kwargs = {
-                'size': self.buffer_size,
-                'state_shape': model.observation_shape,
-                'action_shape': model.action_shape
-            }
+        _buffer_kwargs = {
+            'size': self.buffer_size,
+            'state_shape': model.observation_shape,
+            'action_shape': (1,),
+            'state_type': state_type,
+            'action_type': np.uint8
+        }
+        for k, v in buffer_kwargs.items():
+            _buffer_kwargs[k] = v
+        buffer_kwargs = _buffer_kwargs
 
         super().__init__(
             model=model,
             train_interval=train_interval,
             num_epochs=num_epochs,
+            num_envs=1,
             buffer_cls=buffer_cls,
             buffer_kwargs=buffer_kwargs
         )
@@ -254,6 +266,6 @@ class DQNAgent(Agent):
         return info
 
     def collect(self, state, action, reward, done, next_state):
-        if self.model.discrete:
-            action = np.eye(self.model.action_shape[0])[action]
+        # if self.model.discrete:
+        #     action = np.eye(self.model.action_shape[0])[action]
         self.buffer.push(state, action, reward, done, next_state)

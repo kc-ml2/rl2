@@ -51,6 +51,8 @@ class RolloutWorker:
         self.curr_trajectory = []
         self.trajectories = []
 
+        self.log_interval = log_interval
+
         self.saving_model = True
 
     def run(self):
@@ -151,13 +153,13 @@ class RolloutWorker:
 
         # if self.train_mode:
         agent_info = self.agent.step(self.obs, action, reward, done, obs)
-        # if env_info:
-        #     if isinstance(env_info, dict):
-        #         env_info = {**env_info, **agent_info}
-        #     elif isinstance(env_info, list) or isinstance(env_info, tuple):
-        #         env_info = {**agent_info}
-        # else:
-        #     env_info = {**agent_info}
+        if env_info:
+            if isinstance(env_info, dict):
+                env_info = {**env_info, **agent_info}
+            elif isinstance(env_info, list) or isinstance(env_info, tuple):
+                env_info = {**agent_info}
+        else:
+            env_info = {**agent_info}
 
         self.num_steps += self.agent.num_envs
         self.episode_score = self.episode_score + np.array(reward)
@@ -236,6 +238,7 @@ class MaxStepWorker(RolloutWorker):
         steps_per_env = (self.max_steps // self.agent.num_envs) + 1
         for step in range(steps_per_env):
             done, info, results = self.rollout()
+            self.info.update(info)
             self.worker_log(done)
 
             if self.save_at():
@@ -277,17 +280,16 @@ class MaxStepWorker(RolloutWorker):
         #         )
         #         self.store_image = False
         # Log info
-        # if self.num_steps % self.log_interval < self.agent.num_envs:
-        info_r = {
-            'Counts/num_steps': self.num_steps,
-            'Counts/num_episodes': self.curr_episode,
-            'Episodic/rews_avg': np.mean(list(self.scores)),
-            'Episodic/ep_length': np.mean(list(self.episode_length))
-        }
-        print(info_r)
-        # self.info.update(info_r)
+        if self.num_steps % self.log_interval < self.agent.num_envs:
+            info_r = {
+                'Counts/num_steps': self.num_steps,
+                'Counts/num_episodes': self.curr_episode,
+                'Episodic/rews_avg': np.mean(list(self.scores)),
+                'Episodic/ep_length': np.mean(list(self.episode_length))
+            }
+            self.info.update(info_r)
+            self.logger.scalar_summary(self.info, self.num_steps)
         # # self.info.update(info)
-        # self.logger.scalar_summary(self.info, self.num_steps)
 
 
 class EpisodicWorker(RolloutWorker):

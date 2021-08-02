@@ -244,8 +244,8 @@ class BranchModel(TorchModel):
             observation_shape, action_shape, device
         )
         self.high = high
-
         self.discrete = discrete
+
         self.deterministic = deterministic
         self.grad_clip = grad_clip
         self.recurrent = recurrent
