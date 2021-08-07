@@ -87,6 +87,26 @@ class EpisodicLifeEnv(gym.Wrapper):
         return obs
 
 
+class StatsRecorder(gym.Wrapper):
+    def __init__(self, env):
+        gym.Wrapper.__init__(self, env)
+        self.episode_rewards = 0.0
+
+    def step(self, action):
+        obs, reward, done, info = self.env.step(action)
+        self.episode_rewards += reward
+        if done:
+            info['episode_rewards'] = self.episode_rewards
+            self.episode_rewards = 0.0
+
+        return obs, reward, done, info
+
+    def reset(self, **kwargs):
+        obs = self.env.reset(**kwargs)
+        self.episode_rewards = 0.0
+        return obs
+
+
 def dqn(obs_shape, ac_shape, config, load_dir=None):
     encoder = DeepMindEnc(obs_shape)
     model = DQNModel(observation_shape=obs_shape,
@@ -121,6 +141,7 @@ def dqn(obs_shape, ac_shape, config, load_dir=None):
 def train(config):
     logger = Logger(name='DEFAULT', args=config)
     env = gym.make('BreakoutNoFrameskip-v4')
+    env = StatsRecorder(env)
     env = AtariPreprocessing(env)
     # env = EpisodicLifeEnv(env)
     if 'FIRE' in env.unwrapped.get_action_meanings():
@@ -153,6 +174,7 @@ def test(config, load_dir=None):
     logger = Logger(name='TUTORIAL', args=config)
 
     env = gym.make('BreakoutNoFrameskip-v4')
+    env = StatsRecorder(env)
     env = AtariPreprocessing(env)
     env = FrameStack(env, 4)
     env = NumpyWrapper(env)

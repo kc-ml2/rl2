@@ -13,6 +13,7 @@ import numpy as np
 
 from rl2.agents.base import Agent
 from rl2.ctx import var
+from rl2.workers.infotrack import InfoTracker
 
 logger = logging.getLogger(__name__)
 
@@ -216,6 +217,8 @@ class MaxStepWorker(RolloutWorker):
             save_erange: Tuple[int, int] = None,
             render_mode: str = None,
             logger=None,
+            log_vars=[],
+            log_smooth_vars=[],
     ):
         super().__init__(
             env=env,
@@ -227,7 +230,11 @@ class MaxStepWorker(RolloutWorker):
             render_mode=render_mode,
         )
         self.max_steps = int(max_steps)
-        self.info = {}
+        log_vars += ['Counts/num_steps', 'Counts/num_episodes']
+        log_smooth_vars += ['Episodic/rews_avg', 'Episodic/ep_length',
+                            'episode_rewards']
+        self.info = InfoTracker(log_vars, smoothing_keys=log_smooth_vars,
+                                smoothing_const=100)
 
         self.logger = logger
         self.store_image = False
