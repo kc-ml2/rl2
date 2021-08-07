@@ -7,8 +7,8 @@ from torch.nn import functional as F
 from rl2 import TEST_DATA_DIR
 from rl2.agents.ppo import PPOModel
 from rl2.distributions import DiagGaussianDist
-from rl2.examples.gail_snake_v2 import GAILAgent, FlatExpertTrajectory, \
-    flatten_concat, disc_loss_fn
+from rl2.examples.gail_snake_v2 import GAILAgent, disc_loss_fn
+from rl2.data_utils import FlatExpertTrajectory, flatten_concat
 from rl2.models.base import BranchModel
 from rl2.workers import MaxStepWorker
 
@@ -120,11 +120,16 @@ class VAILAgent(GAILAgent):
 
 if __name__ == '__main__':
     TRAIN_INTERVAL = 128
-    BATCH_SIZE = 512
+    BATCH_SIZE = 1024
 
-    env, obs_shape, ac_shape, props = make_snake(num_envs=64, num_snakes=1,
-                                                 vision_range=5,
-                                                 frame_stack=2)
+    env, obs_shape, ac_shape, props = make_snake(
+        num_envs=64,
+        num_snakes=1,
+        width=7,
+        height=7,
+        vision_range=5,
+        frame_stack=2
+    )
 
     # how can we integrate num_envs?
     # set it in worker, lazy init else where...

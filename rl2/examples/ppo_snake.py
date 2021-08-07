@@ -111,6 +111,6 @@ if __name__ == "__main__":
         # 'tag': 'TUTORIAL/normal_rew',
     config = EasyDict(myconfig)
 
-    # log_dir = train(config)
-    log_dir = 'runs/TUTORIAL/normal_rew/20210414161829'
-    test(config, load_dir=log_dir)
+    log_dir = train(config)
+    # log_dir = 'runs/TUTORIAL/normal_rew/20210414161829'
+    # test(config, load_dir=log_dir)

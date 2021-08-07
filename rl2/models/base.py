@@ -250,6 +250,7 @@ class BranchModel(TorchModel):
 
         if lr is not None:
             optimizer_kwargs['lr'] = lr
+            print('*'*100, lr)
         self.optimizer = self.get_optimizer_by_name(
             [self.encoder, self.head], optimizer, **optimizer_kwargs
         )
