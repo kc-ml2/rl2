@@ -21,12 +21,13 @@ class Agent:
         self.curr_step = 0
 
         self.train_interval = train_interval
-        self.train_at = lambda x: x % self.train_interval == 0
+        self.train_at = lambda x: x % train_interval == 0
         self.eval_interval = eval_interval
-        self.eval_at = lambda x: x % self.eval_interval == 0
+        self.eval_at = lambda x: x % eval_interval == 0
 
         self.num_epochs = num_epochs
         if self.train_interval > 0:
+            buffer_kwargs['num_envs'] = num_envs
             self.buffer = buffer_cls(**buffer_kwargs)
 
         self.num_envs = num_envs

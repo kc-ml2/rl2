@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 import pickle
 from typing import List, Tuple
 
@@ -5,7 +6,7 @@ import numpy as np
 import torch
 from marlenv.wrappers import make_snake
 from torch.utils.data import Dataset, DataLoader
-
+from torch.nn import functional as F
 from rl2 import TEST_DATA_DIR
 from rl2.agents import PPOAgent
 from rl2.agents.base import Agent
@@ -14,14 +15,13 @@ from rl2.agents.utils import general_advantage_estimation
 from rl2.models.base import BranchModel
 from rl2.workers import MaxStepWorker
 
-TRAIN_INTERVAL = 128
-BATCH_SIZE = 16
 
-e, o, a, p = make_snake(num_envs=3, num_snakes=1, vision_range=5, frame_stack=2)
+e, o, a, p = make_snake(num_envs=64, num_snakes=1, vision_range=5, frame_stack=2)
 
 
 def disc_loss_fn(logits, labels):
-    loss = -torch.log(labels - torch.sigmoid(logits) + 1e-8).sum()
+    loss = F.binary_cross_entropy_with_logits(logits, labels)
+    # loss = -torch.log(labels -  torch.sigmoid(logits) + 1e-8).sum()
 
     return loss
 
@@ -64,16 +64,14 @@ class FlatExpertTrajectory(Dataset):
     def _flatten(self, data):
         flat_data = []
         for traj in data:
-            flat_traj = []
             for state, action in traj:
                 action_embedding = self.one_hot[action]
                 state_action = [
-                    np.asarray(state.flatten()),
+                    np.asarray(state).flatten(),
                     action_embedding,
                 ]
                 state_action = np.concatenate(state_action)
-                flat_traj.append(state_action)
-            flat_data.append(state_action)
+                flat_data.append(state_action)
         flat_data = np.asarray(flat_data).astype(np.float32)
 
         return flat_data
@@ -126,6 +124,7 @@ class GAILAgent(AdversarialImitationMixin, PPOAgent):
             expert_trajs: FlatExpertTrajectory,
             one_hot,
             num_envs,
+            disc_batch_size,
             disc_loss_fn=disc_loss_fn,
             **kwargs,
     ):
@@ -133,11 +132,12 @@ class GAILAgent(AdversarialImitationMixin, PPOAgent):
         self.disc_loss_fn = disc_loss_fn
         self.discriminator = discriminator
         self.expert_trajs = expert_trajs
-        self.disc_batch_size = BATCH_SIZE
+        self.disc_batch_size = disc_batch_size
         self.disc_epochs = 10
         self.expert_traj_loader = DataLoader(
             expert_trajs,
-            batch_size=self.disc_batch_size
+            batch_size=disc_batch_size,
+            drop_last=True,
         )
         self.one_hot = one_hot
         self.outer_shape = (self.train_interval, self.num_envs)
@@ -145,8 +145,7 @@ class GAILAgent(AdversarialImitationMixin, PPOAgent):
     def discrimination_reward(self, adversary):
         with torch.no_grad():
             logits = self.discriminator(adversary).mean.squeeze()
-            error = 1 - torch.sigmoid(logits)
-            cost = -torch.log(error + 1e-8).view(128, 3)
+            cost = -torch.log(1 - torch.sigmoid(logits) + 1e-8).view(self.train_interval, self.num_envs)
             cost = cost.cpu().numpy().tolist()
 
         return cost
@@ -159,7 +158,7 @@ class GAILAgent(AdversarialImitationMixin, PPOAgent):
         if self.train_at(self.curr_step):
             self.buffer.shuffle()
             info_ = self.train_discriminator()
-
+            print(info_)
             adversary = flatten_concat(
                 self.buffer.state,
                 self.buffer.action,
@@ -183,7 +182,9 @@ class GAILAgent(AdversarialImitationMixin, PPOAgent):
         return info
 
     def train_discriminator(self):
+        losses = []
         for epoch in range(self.disc_epochs):
+            epoch_losses = []
             for expert_batch, expert_labels in self.expert_traj_loader:
                 buffer_batch = self.buffer.sample(
                     self.disc_batch_size,
@@ -193,24 +194,30 @@ class GAILAgent(AdversarialImitationMixin, PPOAgent):
                 buffer_batch = flatten_concat(
                     buffer_batch[0],
                     buffer_batch[1],
-                    one_hot,
+                    self.one_hot,
                 ).to(self.discriminator.device)
 
                 buffer_labels = torch.zeros(len(buffer_batch)).to(
                     self.discriminator.device
                 )
+                # print(expert_batch.shape, buffer_batch.shape)
+                # print(expert_labels.shape, buffer_labels.shape)
                 batch = torch.cat([expert_batch, buffer_batch])
                 labels = torch.cat([expert_labels, buffer_labels])
                 prob = self.discriminator(batch)
                 logits = prob.mean.squeeze()
 
-                disc_loss = self.disc_loss_fn(logits, labels, self.outer_shape)
+                disc_loss = self.disc_loss_fn(logits, labels)
                 info = self.discriminator.step(disc_loss)
 
-        return info
+                epoch_losses.append(disc_loss)
+            losses.append(sum(epoch_losses)/len(epoch_losses))
+        return losses
 
 
 if __name__ == '__main__':
+    TRAIN_INTERVAL = 128
+    BATCH_SIZE = 512
     one_hot = np.eye(e.action_space[0].n)
     expert_trajs = FlatExpertTrajectory(num_episodes=8, one_hot=one_hot)
     expert_trajs.load_pickle(f'{TEST_DATA_DIR}/PPOAgent_trajs.pickle')
@@ -224,10 +231,11 @@ if __name__ == '__main__':
         buffer_kwargs={
             'size': TRAIN_INTERVAL,
         },
+        disc_batch_size=BATCH_SIZE,
         one_hot=one_hot
     )
 
-    worker = MaxStepWorker(e, agent, max_steps=1024, render_interval=16)
-    worker.set_mode(train=True)
+    worker = MaxStepWorker(e, agent, max_steps=1024 ** 2, render_interval=0,
+                           log_interval=1024, save_interval=0)
     with worker.as_saving(tensorboard=False, saved_model=False):
         worker.run()

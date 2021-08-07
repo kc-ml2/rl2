@@ -36,6 +36,7 @@ class RolloutWorker:
         self.render_interval = render_interval
         self.render_mode = render_mode
         self.save_interval = save_interval
+        self.log_interval = log_interval
 
         self.curr_episode = 0
         self.num_steps = 0
@@ -117,7 +118,7 @@ class RolloutWorker:
             save_dir,
             f'ckpt/{int(self.num_steps / 1000)}k'
         )
-        Path(save_dir).mkdir(parents=True)
+        Path(save_dir).mkdir(parents=True, exist_ok=True)
         self.agent.model.save(save_dir)
 
         logging.info(f'saved model to {save_dir}')
@@ -207,10 +208,10 @@ class MaxStepWorker(RolloutWorker):
             self,
             env: gym.Env,
             agent: Agent,
-            max_steps: int = 10,
-            log_interval: int = 1,
-            render_interval: int = 128,
-            save_interval: int = 128,
+            max_steps: int = 2,
+            log_interval: int = 0,
+            render_interval: int = 0,
+            save_interval: int = 0,
             save_erange: Tuple[int, int] = None,
             render_mode: str = None,
             logger=None,
@@ -224,7 +225,9 @@ class MaxStepWorker(RolloutWorker):
             save_erange=save_erange,
             render_mode=render_mode,
         )
+
         self.max_steps = int(max_steps)
+        self.steps_per_env = (self.max_steps // self.agent.num_envs) + 1
         self.info = {}
 
         self.logger = logger
@@ -233,13 +236,18 @@ class MaxStepWorker(RolloutWorker):
         self.time_to_log_image = False
 
     def run(self):
-        steps_per_env = (self.max_steps // self.agent.num_envs) + 1
-        for step in range(steps_per_env):
+        for step in range(self.steps_per_env):
             done, info, results = self.rollout()
-            self.worker_log(done)
+
+            if self.log_at():
+                self.worker_log(done)
 
             if self.save_at():
                 self.save_model()
+
+    def log_at(self):
+        return self.log_interval > 0 and (
+                self.num_steps % self.log_interval) < self.agent.num_envs
 
     def save_at(self):
         return (self.save_interval > 0) and (

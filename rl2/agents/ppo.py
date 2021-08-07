@@ -17,7 +17,8 @@ def loss_func(
     obs, old_acs, dones, _, old_vals, old_nlps, advs = data
     obs, old_acs, dones, old_vals, old_nlps, advs = map(
         lambda x: torch.from_numpy(x).float().to(model.device),
-        [obs, old_acs, dones, old_vals, old_nlps, advs])
+        [obs, old_acs, dones, old_vals, old_nlps, advs]
+    )
     val_targets = old_vals + advs
 
     # Infer from model
@@ -89,7 +90,7 @@ class PPOModel(TorchModel):
             observation_shape, (1,),
             encoder=self.policy.encoder,
             encoded_dim=encoded_dim,
-            discrete=False,
+            discrete=True,
             deterministic=True,
             flatten=flatten,
             reorder=reorder,
@@ -202,11 +203,6 @@ class PPOAgent(Agent):
 
         return action
 
-        idxes = np.random.randint(0, len(adata), size=1024)
-        adata = adata[idxes]
-
-        return edata, adata
-
     def train_at(self, curr_step):
         return curr_step % self.train_interval == 0
 
@@ -257,6 +253,7 @@ class PPOAgent(Agent):
         info = {
             'Loss/All': sum(losses) / (len(losses) + 1e-8)
         }
+        # print(info)
 
         return info
 

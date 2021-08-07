@@ -13,11 +13,6 @@ from torch.optim.optimizer import Optimizer
 from rl2 import networks
 from rl2.networks.core import MLP, ConvEnc, LSTM
 
-"""
-interface that can handle most of the recent algorithms. (PG, Qlearning)
-but interface itself can serve as vanilla algorithm
-"""
-
 
 class TorchModel(nn.Module):
     """
@@ -206,17 +201,6 @@ class BaseEncoder(nn.Module):
         self.memory = {}
 
 
-class BaseHead(nn.Module):
-    def __init__(self, net):
-        super().__init__()
-        self.net = net
-
-    def forward(self, x):
-        if self.net is not None:
-            x = self.net(x)
-        return x
-
-
 class BranchModel(TorchModel):
     def __init__(
             self,
@@ -226,7 +210,7 @@ class BranchModel(TorchModel):
             encoded_dim=64,
             head=None,
             optimizer='torch.optim.Adam',
-            optimizer_kwargs = {},
+            optimizer_kwargs={},
             lr=None,
             grad_clip=1.0,
             make_target=False,
@@ -388,7 +372,8 @@ class BranchModel(TorchModel):
         self.optimizer.zero_grad()
         loss.backward(retain_graph=retain_graph)
         torch.nn.utils.clip_grad_norm_(
-            self.parameters(), self.grad_clip)
+            self.parameters(), self.grad_clip
+        )
         self.optimizer.step()
 
     def save(self):

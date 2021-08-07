@@ -1,4 +1,8 @@
-TEST_DATA_DIR = '/Users/anthony/data'
+import os
+from pathlib import Path
+
+# TODO: change dir to S3 url
+TEST_DATA_DIR = os.path.join(Path.home(), 'data')
 
 DEFAULT_FRAMEWORK = 'torch'
 
@@ -14,5 +18,3 @@ def get_global_seed():
 
 def set_global_seed():
     pass
-
-

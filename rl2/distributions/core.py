@@ -9,10 +9,14 @@ import rl2.ctx
 EPS = 1e-8
 
 
-class ScalarDist(torch.distributions.Distribution):
+class ScalarDist:
+# class ScalarDist(torch.distributions.Distribution):
     def __init__(self, vals):
-        super().__init__(validate_args=False)
+        # super().__init__(validate_args=False)
         self.vals = vals
+
+    def __repr__(self):
+        return str(self.vals)
 
     def log_prob(self, x):
         raise NotImplementedError
@@ -118,7 +122,7 @@ class DiagGaussianDist(torch.distributions.Normal):
     def _log_prob(self, x):
         log_scale = torch.log(self.scale + EPS)
         return -((x - self.loc) ** 2) / (2 * self.var) - log_scale \
-               - math.log(math.sqrt(2 * math.pi))
+               - math.log(math.sqrt(2 * math.pi) + EPS)
 
     def log_prob(self, x):
         return self._log_prob(x).sum(-1)
@@ -139,9 +143,11 @@ class DiagGaussianDist(torch.distributions.Normal):
         return torch.log(self.scale)
 
     def kl(self, other):
-        return torch.sum(other.logstd - self.logstd
-                         + (self.scale + (self.loc - other.loc) ** 2)
-                         / (2.0 * rl2.ctx.var) - 0.5, dim=-1)
+        ss = (self.scale ** 2 + (self.loc - other.loc) ** 2) / (2.0 * self.var)
+        return torch.sum(
+            other.logstd - self.logstd + ss - 0.5,
+            dim=-1
+        )
 
 
 # TODO: implement mixture of gaussian
