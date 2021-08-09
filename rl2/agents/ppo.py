@@ -228,8 +228,7 @@ class PPOAgent(Agent):
 
         return info
 
-
-    def train(self, advs, **kwargs):
+    def train(self, advs):
         losses = []
         for _ in range(self.num_epochs):
             num_minibatches = (
@@ -277,4 +276,3 @@ class PPOAgent(Agent):
             value=self.value,
             nlp=self.nlp
         )
-

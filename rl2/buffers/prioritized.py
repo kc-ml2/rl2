@@ -1,3 +1,5 @@
+import random
+
 from rl2.buffers.base import ReplayBuffer
 
 

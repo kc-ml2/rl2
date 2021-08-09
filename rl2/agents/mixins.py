@@ -2,5 +2,5 @@ class AdversarialImitationMixin:
     def discrimination_reward(self):
         raise NotImplementedError
 
-    def train_discriminator(self):
+    def train(self):
         raise NotImplementedError
