@@ -29,6 +29,7 @@ def loss_fn(logits, labels, kld, beta):
 class VDB(BranchModel):
     def __init__(self, observation_shape, action_shape, latent_size):
         super().__init__(observation_shape, action_shape)
+        self.lr = int(1e-4)
         input_shape = np.prod(observation_shape) + action_shape[0]
         self.encoder = BranchModel(
             observation_shape=(input_shape,),
