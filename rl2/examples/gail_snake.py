@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 
 import numpy as np
+from torch.optim import RMSprop
+from torch.optim.adam import Adam
 from marlenv.wrappers import make_snake
 
 from rl2 import TEST_DATA_DIR
@@ -16,6 +18,11 @@ NUM_ENVS = 64
 env, obs_shape, ac_shape, props = make_snake(num_envs=NUM_ENVS, num_snakes=1, width=7, height=7, vision_range=5, frame_stack=2)
 
 if __name__ == '__main__':
+    # optimizer = torch.optim.RMSprop()
+    # optimizer = torch.optim.lr_scheduler.ReduceLROnPlateau
+    #
+    # buffer =
+
     model = PPOModel(obs_shape, ac_shape)
     rlagent = PPOAgent(
         model=model,

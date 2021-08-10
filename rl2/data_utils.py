@@ -18,7 +18,8 @@ class FlatExpertTrajectory(Dataset):
         self.num_episodes = num_episodes
         self.device = device
         self.one_hot = one_hot
-        self.data_ = data
+        self.data_ = None
+        self.data = data
 
     def __len__(self):
         return self.data.shape[0]
