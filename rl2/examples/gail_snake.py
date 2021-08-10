@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 
 import numpy as np
-from torch.optim import RMSprop
-from torch.optim.adam import Adam
+# from torch.optim import RMSprop
+# from torch.optim.adam import Adam
 from marlenv.wrappers import make_snake
 
 from rl2 import TEST_DATA_DIR
