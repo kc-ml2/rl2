@@ -103,7 +103,8 @@ class VAILAgent(GAILAgent):
                 logits = self.discriminator(batch).mean
 
                 kld = self.discriminator.dist.kl(
-                    DiagGaussianDist(0., 1.)).mean()
+                    DiagGaussianDist(0., 1.)
+                ).mean()
                 disc_loss, self.beta = self.loss_fn(logits, labels, kld,
                                                     self.beta)
 

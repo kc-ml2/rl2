@@ -28,7 +28,14 @@ def discriminator(obs_shape, action_shape):
     return model
 
 
+
 class GAILAgent(Agent):
+    """
+    model : discriminator
+    batch_size : discriminator's batch size
+    loss_fn : discriminator's loss function
+    num_epochs : discriminator's number of epochs
+    """
     def __init__(
             self,
             rlagent,

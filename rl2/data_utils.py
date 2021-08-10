@@ -60,6 +60,7 @@ class FlatExpertTrajectory(Dataset):
         with open(data_dir, 'rb') as fp:
             self.data = pickle.load(fp)
             # type check?
+            #
 
 
 def flatten_concat(states, actions, one_hot):
@@ -73,7 +74,8 @@ def flatten_concat(states, actions, one_hot):
 
     states = [state.flatten().astype(np.float32) for state in states]
     actions = [one_hot[int(action[0])] for action in actions]
-    ret = np.asarray([np.concatenate([i, j]) for i, j in zip(states, actions)])
+    ret = np.asarray(
+        [np.concatenate([i, j]) for i, j in zip(states, actions)])
     ret = torch.from_numpy(ret).float()
 
     return ret
