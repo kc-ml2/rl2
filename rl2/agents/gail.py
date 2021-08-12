@@ -145,9 +145,3 @@ class GAILAgent(Agent):
 
     def collect(self, *args):
         self.rlagent.collect(*args)
-
-    def save(self, save_dir):
-        self.rlagent.save(save_dir)
-
-    def load(self, model_dir):
-        self.rlagent.load(model_dir)

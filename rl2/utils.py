@@ -1,5 +1,8 @@
+import time
+
 class EasyDict(dict):
     """Ref: https://github.com/makinacorpus/easydict"""
+
     def __init__(self, d=None, **kwargs):
         if d is None:
             d = {}
@@ -10,6 +13,7 @@ class EasyDict(dict):
 
         def is_magic_method(k):
             return k.startswith('__') and k.endswith('__')
+
         # Class attributes
         for k in self.__class__.__dict__.keys():
             if not is_magic_method(k) and not k in ('update', 'pop'):
