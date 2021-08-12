@@ -28,7 +28,6 @@ def discriminator(obs_shape, action_shape):
     return model
 
 
-
 class GAILAgent(Agent):
     """
     model : discriminator
@@ -36,6 +35,7 @@ class GAILAgent(Agent):
     loss_fn : discriminator's loss function
     num_epochs : discriminator's number of epochs
     """
+
     def __init__(
             self,
             rlagent,
@@ -65,7 +65,8 @@ class GAILAgent(Agent):
     def disc_reward(self, adversary):
         with torch.no_grad():
             logits = self.model(adversary).mean.squeeze()
-            cost = -torch.log(1 - torch.sigmoid(logits) + 1e-8).view(*self.buffer_shape)
+            cost = -torch.log(1 - torch.sigmoid(logits) + 1e-8).view(
+                *self.buffer_shape)
             cost = cost.cpu().numpy().tolist()
 
         return cost
@@ -144,3 +145,9 @@ class GAILAgent(Agent):
 
     def collect(self, *args):
         self.rlagent.collect(*args)
+
+    def save(self, save_dir):
+        self.rlagent.save(save_dir)
+
+    def load(self, model_dir):
+        self.rlagent.load(model_dir)
