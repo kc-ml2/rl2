@@ -26,6 +26,8 @@ class RolloutWorker:
             render_interval: int = 0,
             save_interval: int = 0,
             log_interval: int = 0,
+            log_vars: list = [],
+            log_smooth_vars: list = [],
             save_erange: Tuple[int, int] = None,  # range of episodes
             render_mode: str = '',
     ):
@@ -53,6 +55,10 @@ class RolloutWorker:
         self.trajectories = []
 
         self.log_interval = log_interval
+        log_vars += ['Counts/num_steps', 'Counts/num_episodes']
+        log_smooth_vars += ['Episodic/rews_avg', 'Episodic/ep_length']
+        self.info = InfoTracker(log_vars, smoothing_keys=log_smooth_vars,
+                                smoothing_const=100)
 
         self.saving_model = True
 
@@ -163,6 +169,7 @@ class RolloutWorker:
             env_info = {**agent_info}
 
         self.num_steps += self.agent.num_envs
+        self.info.update({'Counts/num_steps': self.num_steps})
         self.episode_score = self.episode_score + np.array(reward)
         self.episode_steps = self.episode_steps + np.ones_like(done, np.int)
 
@@ -170,18 +177,20 @@ class RolloutWorker:
 
         if done.size > 1:
             self.curr_episode += sum(done)
+            self.info.update({'Counts/num_episodes': self.curr_episode})
             for idx in np.where(done)[0]:
-                self.scores.append(self.episode_score[idx])
+                self.info.update(
+                    {'Episodic/rews_avg': self.episode_scores[idx],
+                     'Episodic/ep_length': self.episode_steps[idx]})
                 self.episode_score[idx] = 0.
-                self.episode_length.append(self.episode_steps[idx])
                 self.episode_steps[idx] = 0.
         else:
             if done:
                 # episode changes from below
                 obs = self.env.reset()
-                self.scores.append(self.episode_score)
+                self.info.update({'Episodic/rews_avg': self.episode_scores,
+                                  'Episodic/ep_length': self.episode_steps})
                 self.episode_score = 0.
-                self.episode_length.append(self.episode_steps)
                 self.episode_steps = 0
 
                 if self.in_erange():
@@ -189,6 +198,7 @@ class RolloutWorker:
                     self.curr_trajectory = []
 
                 self.curr_episode += 1
+                self.info.update({'Counts/num_episodes': self.curr_episode})
 
         self.obs = obs
         results = None
@@ -224,17 +234,14 @@ class MaxStepWorker(RolloutWorker):
             env=env,
             agent=agent,
             log_interval=log_interval,
+            log_vars=log_vars,
+            log_smooth_vars=log_smooth_vars,
             render_interval=render_interval,
             save_interval=save_interval,
             save_erange=save_erange,
             render_mode=render_mode,
         )
         self.max_steps = int(max_steps)
-        log_vars += ['Counts/num_steps', 'Counts/num_episodes']
-        log_smooth_vars += ['Episodic/rews_avg', 'Episodic/ep_length',
-                            'episode_rewards']
-        self.info = InfoTracker(log_vars, smoothing_keys=log_smooth_vars,
-                                smoothing_const=100)
 
         self.logger = logger
         self.store_image = False
@@ -246,6 +253,7 @@ class MaxStepWorker(RolloutWorker):
         for step in range(steps_per_env):
             done, info, results = self.rollout()
             self.info.update(info)
+            if self.num_steps % self.log_interval < self.agent.num_envs:
             self.worker_log(done)
 
             if self.save_at():
@@ -288,21 +296,14 @@ class MaxStepWorker(RolloutWorker):
         #         self.store_image = False
         # Log info
         if self.num_steps % self.log_interval < self.agent.num_envs:
-            info_r = {
-                'Counts/num_steps': self.num_steps,
-                'Counts/num_episodes': self.curr_episode,
-                'Episodic/rews_avg': np.mean(list(self.scores)),
-                'Episodic/ep_length': np.mean(list(self.episode_length))
-            }
-            self.info.update(info_r)
             self.logger.scalar_summary(self.info, self.num_steps)
         # # self.info.update(info)
 
 
 class EpisodicWorker(RolloutWorker):
     """
-    do rollout until max episodes given
-    might be useful at inference time or when training episodically
+    do rollout until given max episodes
+    useful at inference time or when training episodically
     """
 
     def __init__(
@@ -311,7 +312,7 @@ class EpisodicWorker(RolloutWorker):
             agent: Agent,
             max_episodes: int = 10,
             log_interval: int = 1,
-            render_interval: int = 128,
+            render_interval: int = 0,
             save_interval: int = 128,
             save_erange: Tuple[int, int] = None,
             render_mode: str = None,
@@ -353,14 +354,6 @@ class EpisodicWorker(RolloutWorker):
                 if (prev_num_ep // self.render_interval !=
                         self.curr_episode // self.render_interval):
                     self.start_log_image = True
-            info_r = {
-                'Counts/num_steps': self.num_steps,
-                'Counts/num_episodes': self.curr_episode,
-                'Episodic/rews_avg': np.mean(list(self.scores)),
-                'Episodic/ep_length': np.mean(list(self.episode_length))
-            }
-            self.info.update(info_r)
-            # self.info.update(info)
             if (prev_num_ep // self.log_interval
                     != self.curr_episode // self.log_interval):
                 self.logger.scalar_summary(self.info, self.num_steps)
