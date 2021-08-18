@@ -241,6 +241,7 @@ class MaxStepWorker(RolloutWorker):
 
             if self.log_at():
                 self.worker_log(done)
+                self.write_summary()
 
             if self.save_at():
                 self.save_model()
@@ -253,6 +254,8 @@ class MaxStepWorker(RolloutWorker):
         return (self.save_interval > 0) and (
                 (self.num_steps % self.save_interval) < self.agent.num_envs)
 
+    def write_summary(self):
+        pass
     # def save_model(self):
     #     if hasattr(self, 'logger'):
     #         save_dir = getattr(self.logger, 'log_dir')

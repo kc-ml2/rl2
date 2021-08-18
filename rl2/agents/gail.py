@@ -15,6 +15,9 @@ def loss_fn(logits, labels):
     return loss
 
 
+from torch.optim.lr_scheduler import CosineAnnealingLR, ExponentialLR
+
+
 def discriminator(obs_shape, action_shape):
     model = BranchModel(
         (np.prod(obs_shape) + action_shape[0],),
@@ -22,7 +25,15 @@ def discriminator(obs_shape, action_shape):
         discrete=False,
         deterministic=True,
         flatten=True,
-        lr=0.0001,
+        lr_scheduler_cls=ExponentialLR,
+        lr_scheduler_kwargs=dict(
+            gamma=0.9
+        ),
+        optimizer='torch.optim.AdamW',
+        optimizer_kwargs=dict(
+            lr=1e-4,
+            weight_decay=5e-2
+        )
     )
 
     return model
@@ -80,7 +91,7 @@ class GAILAgent(Agent):
         if agent.train_at(agent.curr_step):
             # self.buffer.shuffle()
             info_ = self.train()
-            print(info_)
+            # print(info_)
             adversary = flatten_concat(
                 self.buffer.state,
                 self.buffer.action,
@@ -112,6 +123,7 @@ class GAILAgent(Agent):
     def train(self):
         losses = []
         for epoch in range(self.num_epochs):
+            self.model.lr_scheduler.step()
             epoch_losses = []
             for expert_batch, expert_labels in self.expert_traj_loader:
                 buffer_batch = self.buffer.sample(

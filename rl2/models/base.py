@@ -212,6 +212,8 @@ class BranchModel(TorchModel):
             optimizer='torch.optim.Adam',
             optimizer_kwargs={},
             lr=None,
+            lr_scheduler_cls=None,
+            lr_scheduler_kwargs={},
             grad_clip=1.0,
             make_target=False,
             discrete=True,
@@ -248,11 +250,17 @@ class BranchModel(TorchModel):
             depth=head_depth,
         ).to(self.device)
 
-        if lr is not None:
-            optimizer_kwargs['lr'] = lr
-        self.optimizer = self.get_optimizer_by_name(
-            [self.encoder, self.head], optimizer, **optimizer_kwargs
-        )
+        if isinstance(optimizer, str):
+            if lr is not None:
+                optimizer_kwargs['lr'] = lr
+            self.optimizer = self.get_optimizer_by_name(
+                [self.encoder, self.head], optimizer, **optimizer_kwargs
+            )
+            if lr_scheduler_cls is not None:
+                self.lr_scheduler = lr_scheduler_cls(self.optimizer, **lr_scheduler_kwargs)
+        else:
+            self.optimizer = optimizer
+
         self.encoder_target = None
         self.head_target = None
         if make_target:
@@ -375,6 +383,8 @@ class BranchModel(TorchModel):
             self.parameters(), self.grad_clip
         )
         self.optimizer.step()
+        # self.lr_scheduler.step(loss)
+        # self.lr_scheduler.step()
 
     def save(self):
         raise NotImplementedError
