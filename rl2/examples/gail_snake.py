@@ -42,7 +42,7 @@ if __name__ == '__main__':
 
     worker = MaxStepWorker(
         env, agent,
-        max_steps=int(2e6),
+        max_steps=int(5e6),
         render_interval=0,
         log_interval=int(1e4),
         save_interval=0

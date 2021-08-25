@@ -11,6 +11,8 @@ from typing import Tuple
 import gym
 import numpy as np
 
+from torch.utils.tensorboard import SummaryWriter
+
 from rl2.agents.base import Agent
 from rl2.ctx import var
 
@@ -53,6 +55,9 @@ class RolloutWorker:
         self.trajectories = []
 
         self.saving_model = True
+
+        self.summary_writer = SummaryWriter(self.default_save_dir())
+        # self.summary_writer.add_graph(self.agent.model)
 
     def run(self):
         raise NotImplementedError
@@ -240,11 +245,13 @@ class MaxStepWorker(RolloutWorker):
             done, info, results = self.rollout()
 
             if self.log_at():
-                self.worker_log(done)
-                self.write_summary()
+                self.worker_log(done, step)
+                # self.write_summary()
 
             if self.save_at():
                 self.save_model()
+
+        self.summary_writer.close()
 
     def log_at(self):
         return self.log_interval > 0 and (
@@ -254,8 +261,10 @@ class MaxStepWorker(RolloutWorker):
         return (self.save_interval > 0) and (
                 (self.num_steps % self.save_interval) < self.agent.num_envs)
 
-    def write_summary(self):
-        pass
+    # def write_summary(self, results):
+    #
+    #     self.summary_writer.add_scalar()
+
     # def save_model(self):
     #     if hasattr(self, 'logger'):
     #         save_dir = getattr(self.logger, 'log_dir')
@@ -264,7 +273,7 @@ class MaxStepWorker(RolloutWorker):
     #
     #     self.save_model(save_dir)
 
-    def worker_log(self, done):
+    def worker_log(self, done, step):
         # Save rendered image as gif
         # if self.render_interval > 0:
         #     if (self.num_steps % self.render_interval) < self.agent.num_envs:
@@ -296,6 +305,8 @@ class MaxStepWorker(RolloutWorker):
             'Episodic/ep_length': np.mean(list(self.episode_length))
         }
         print(info_r)
+        for k, v in info_r.items():
+            self.summary_writer.add_scalar(k, v, step*self.agent.num_envs)
         # self.info.update(info_r)
         # # self.info.update(info)
         # self.logger.scalar_summary(self.info, self.num_steps)

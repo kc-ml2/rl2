@@ -267,6 +267,7 @@ class BranchModel(TorchModel):
             self.encoder_target = copy.deepcopy(self.encoder)
             self.head_target = copy.deepcopy(self.head)
 
+
     def _handle_encoder(self, encoder, observation_shape, encoded_dim,
                         reorder=False, flatten=False, default=True, rnn=False,
                         high=1):

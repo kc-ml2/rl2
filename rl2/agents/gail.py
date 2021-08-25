@@ -15,7 +15,7 @@ def loss_fn(logits, labels):
     return loss
 
 
-from torch.optim.lr_scheduler import CosineAnnealingLR, ExponentialLR
+from torch.optim.lr_scheduler import CosineAnnealingLR, ExponentialLR, StepLR
 
 
 def discriminator(obs_shape, action_shape):
@@ -123,7 +123,7 @@ class GAILAgent(Agent):
     def train(self):
         losses = []
         for epoch in range(self.num_epochs):
-            self.model.lr_scheduler.step()
+
             epoch_losses = []
             for expert_batch, expert_labels in self.expert_traj_loader:
                 buffer_batch = self.buffer.sample(
@@ -148,6 +148,7 @@ class GAILAgent(Agent):
                 self.model.step(disc_loss)
 
                 epoch_losses.append(disc_loss)
+            self.model.lr_scheduler.step()
 
         return losses
 

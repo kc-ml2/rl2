@@ -144,3 +144,4 @@ tmp/
 .vscode/
 
 *.pickle
+events.out.*

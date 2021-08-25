@@ -1,20 +1,26 @@
 import numpy as np
+from torch import nn
 import torch
 from torch.nn import functional as F
+from torch.utils.data import DataLoader
 
+from rl2.agents.utils import general_advantage_estimation
 from rl2.data_utils import flatten_concat
 from rl2.distributions import DiagGaussianDist
 from rl2.agents.gail import GAILAgent, loss_fn
 
 from rl2.models.base import BranchModel
 
+DUAL_LR = 5e-5
+PPO_LR = None
+DISC_LR = 1e-4
 
 def loss_fn(logits, labels, kld, beta):
-    information_constrain = 0.5
-    dual_lr = 1e-5
+    information_constrain = 0.5 
+    dual_lr = DUAL_LR
 
     bottleneck_loss = kld - information_constrain
-    beta = max(0., beta + dual_lr * bottleneck_loss)
+    beta = max(0., beta + dual_lr * bottleneck_loss.detach())
 
     disc_loss = F.binary_cross_entropy_with_logits(logits, labels)
     disc_loss = disc_loss + beta * bottleneck_loss
@@ -22,25 +28,58 @@ def loss_fn(logits, labels, kld, beta):
     return disc_loss, beta
 
 
-class VDB(BranchModel):
-    def __init__(self, observation_shape, action_shape, latent_size):
-        super().__init__(observation_shape, action_shape)
-        self.lr = int(1e-4)
+class VDB(nn.Module):
+    def __init__(self, observation_shape, action_shape, latent_size, device='cuda'):
+        super().__init__()
+        encoded_dim = 256
+
+        self.device=device
         input_shape = np.prod(observation_shape) + action_shape[0]
+
+        enc = nn.Sequential(
+            nn.Linear(input_shape, 512),
+            nn.ReLU(),
+            nn.Linear(512, encoded_dim),
+        )
+
         self.encoder = BranchModel(
             observation_shape=(input_shape,),
             action_shape=(latent_size,),
+            encoder=enc,
+            encoded_dim=encoded_dim,
             deterministic=False,
             discrete=False,
-            flatten=True,
+            lr=DISC_LR,
         )
+
+        denc = nn.Sequential(
+            nn.Linear(latent_size, encoded_dim),
+            nn.ReLU(),
+            nn.Linear(encoded_dim, encoded_dim),
+        )
+            
         self.discriminator = BranchModel(
             (latent_size,),
             (1,),
+            encoder=denc,
+            encoded_dim=encoded_dim,
             discrete=False,
             deterministic=True,
+            lr=DISC_LR,
         )
         self.dist = None
+
+    def step(self, loss):
+        e_opt = self.encoder.optimizer
+        d_opt = self.discriminator.optimizer
+
+        e_opt.zero_grad()
+        d_opt.zero_grad()
+
+        loss.backward()
+
+        e_opt.step()
+        d_opt.step()
 
     def forward(self, x):
         self.dist = self.encoder(x)
@@ -52,7 +91,7 @@ class VDB(BranchModel):
         return logits
 
 
-class VAILAgent(GAILAgent):
+class VAILAgent:
     """
     1. different discriminator; add bottleneck
     2. regularize loss with kl
@@ -60,57 +99,107 @@ class VAILAgent(GAILAgent):
 
     def __init__(
             self,
+            rlagent,
             model,
-            discriminator,
+            batch_size,
             expert_trajs,
             one_hot,
-            num_envs,
-            disc_batch_size,
             loss_fn=loss_fn,
-            **kwargs,
+            num_epochs=1,
     ):
-        GAILAgent.__init__(
-            self, model=model, num_envs=num_envs, one_hot=one_hot,
-            expert_trajs=expert_trajs, discriminator=discriminator,
-            disc_loss_fn=loss_fn, disc_batch_size=disc_batch_size, **kwargs
-        )
+        self.rlagent = rlagent
+        self.buffer = rlagent.buffer
+        self.buffer_shape = (self.buffer.max_size, self.buffer.num_envs)
+        self.num_envs = rlagent.num_envs
+        self.model = model
+        self.batch_size = batch_size
         self.loss_fn = loss_fn
-        self.beta = 1e-5
+        self.expert_trajs = expert_trajs
+        self.num_epochs = num_epochs
+        self.expert_traj_loader = DataLoader(
+            expert_trajs,
+            batch_size=batch_size,
+            drop_last=True,
+        )
+        self.one_hot = one_hot
+        self.beta = 0.
 
-    def train_discriminator(self):
+    def disc_reward(self, adversary):
+        with torch.no_grad():
+            logits = self.model(adversary).mean.squeeze()
+            cost = -torch.log(1 - torch.sigmoid(logits) + 1e-8).view(
+                *self.buffer_shape)
+            cost = cost.cpu().numpy().tolist()
+
+        return cost
+    
+    def step(self, state, action, reward, done, next_state):
+        agent = self.rlagent
+        agent.curr_step += 1
+        self.collect(state, action, reward, agent.done, agent.value,
+                     agent.nlp)
+        agent.done = done
+        info = {}
+        if agent.train_at(agent.curr_step):
+            # self.buffer.shuffle()
+            info_ = self.train()
+            # print(info_)
+            adversary = flatten_concat(
+                self.buffer.state,
+                self.buffer.action,
+                self.one_hot,
+            ).to(self.model.device)
+
+            self.buffer.reward = self.disc_reward(adversary)
+
+            # TODO: only PPO, currently
+            value = agent.model.val(next_state)
+            advs = general_advantage_estimation(
+                self.buffer.to_dict(), value, done, agent.gamma, agent.lamda
+            )
+            agent.train(advs)
+
+    def train(self):
         info = {}
         losses = []
-        for epoch in range(self.disc_epochs):
+        for epoch in range(self.num_epochs):
             epoch_losses = []
             for expert_batch, expert_labels in self.expert_traj_loader:
                 buffer_batch = self.buffer.sample(
-                    self.disc_batch_size,
+                    self.batch_size,
                     return_idx=True
                 )
                 buffer_batch = flatten_concat(
                     buffer_batch[0],
                     buffer_batch[1],
                     self.one_hot,
-                ).to(self.discriminator.device)
+                ).to(self.model.device)
 
                 buffer_labels = torch.zeros(len(buffer_batch)).to(
-                    self.discriminator.device
+                    self.model.device
                 )
 
                 batch = torch.cat([expert_batch, buffer_batch])
                 labels = torch.cat([expert_labels, buffer_labels]).unsqueeze(1)
 
-                logits = self.discriminator(batch).mean
+                logits = self.model(batch).mean
 
-                kld = self.discriminator.dist.kl(
+                kld = self.model.dist.kl(
                     DiagGaussianDist(0., 1.)
                 ).mean()
                 disc_loss, self.beta = self.loss_fn(logits, labels, kld,
                                                     self.beta)
 
-                info_ = self.discriminator.step(disc_loss)
+                info_ = self.model.step(disc_loss)
 
                 epoch_losses.append(disc_loss)
             losses.append(sum(epoch_losses) / len(epoch_losses))
 
         return losses
+
+    def act(self, obs):
+        actions = self.rlagent.act(obs)
+        return actions
+
+    def collect(self, *args):
+      self.rlagent.collect(*args)
