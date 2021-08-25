@@ -15,8 +15,9 @@ DUAL_LR = 5e-5
 PPO_LR = None
 DISC_LR = 1e-4
 
+
 def loss_fn(logits, labels, kld, beta):
-    information_constrain = 0.5 
+    information_constrain = 0.5
     dual_lr = DUAL_LR
 
     bottleneck_loss = kld - information_constrain
@@ -29,24 +30,41 @@ def loss_fn(logits, labels, kld, beta):
 
 
 class VDB(nn.Module):
-    def __init__(self, observation_shape, action_shape, latent_size, device='cuda'):
+    def __init__(self, observation_shape, action_shape, latent_size):
         super().__init__()
         encoded_dim = 256
 
-        self.device=device
-        input_shape = np.prod(observation_shape) + action_shape[0]
+        self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+        # input_shape = np.prod(observation_shape) + action_shape[0]
 
-        enc = nn.Sequential(
-            nn.Linear(input_shape, 512),
-            nn.ReLU(),
-            nn.Linear(512, encoded_dim),
+        input_shape = (
+            *observation_shape[:-1],
+            observation_shape[-1] + action_shape[0]
         )
+        print(input_shape)
+        # in_channels = observation_shape[-1] + action_shape[0]
+        # enc = nn.Sequential(
+        #     nn.Conv2d(in_channels, 64, 3),
+        #     nn.MaxPool2d(),
+        #     nn.ReLU(),
+        #     nn.Conv2d(64, 64, 3),
+        #     nn.MaxPool2d(),
+        #     nn.ReLU(),
+        #     nn.Conv2d(64, 64, 3),
+        #     nn.MaxPool2d(),
+        #     nn.ReLU(),
+        # )
+        # enc = nn.Sequential(
+        #     nn.Linear(input_shape, 512),
+        #     nn.ReLU(),
+        #     nn.Linear(512, encoded_dim),
+        # )
 
         self.encoder = BranchModel(
-            observation_shape=(input_shape,),
+            observation_shape=input_shape,
             action_shape=(latent_size,),
-            encoder=enc,
-            encoded_dim=encoded_dim,
+            # encoder=enc,
+            # encoded_dim=encoded_dim,
             deterministic=False,
             discrete=False,
             lr=DISC_LR,
@@ -57,7 +75,7 @@ class VDB(nn.Module):
             nn.ReLU(),
             nn.Linear(encoded_dim, encoded_dim),
         )
-            
+
         self.discriminator = BranchModel(
             (latent_size,),
             (1,),
@@ -121,6 +139,7 @@ class VAILAgent:
             batch_size=batch_size,
             drop_last=True,
         )
+        self.flatten = self.expert_trajs.flatten
         self.one_hot = one_hot
         self.beta = 0.
 
@@ -132,7 +151,7 @@ class VAILAgent:
             cost = cost.cpu().numpy().tolist()
 
         return cost
-    
+
     def step(self, state, action, reward, done, next_state):
         agent = self.rlagent
         agent.curr_step += 1
@@ -144,12 +163,23 @@ class VAILAgent:
             # self.buffer.shuffle()
             info_ = self.train()
             # print(info_)
-            adversary = flatten_concat(
-                self.buffer.state,
-                self.buffer.action,
-                self.one_hot,
-            ).to(self.model.device)
+            if self.flatten:
+                adversary = flatten_concat(
+                    self.buffer.state,
+                    self.buffer.action,
+                    self.one_hot,
+                ).to(self.model.device)
+            else:
+                adversary = []
+                for st, ac in zip(self.buffer.state, self.buffer.action):
+                    for i_st, i_ac in zip(st, ac):
+                        ac_embed = self.one_hot[i_ac]
+                        st_ac = np.concatenate((i_st, ac_embed), -1)
+                        adversary.append(st_ac)
 
+                adversary = np.asarray(adversary)
+                adversary = torch.from_numpy(adversary).to(
+                    self.model.device)
             self.buffer.reward = self.disc_reward(adversary)
 
             # TODO: only PPO, currently
@@ -169,11 +199,18 @@ class VAILAgent:
                     self.batch_size,
                     return_idx=True
                 )
-                buffer_batch = flatten_concat(
-                    buffer_batch[0],
-                    buffer_batch[1],
-                    self.one_hot,
-                ).to(self.model.device)
+                if self.flatten:
+                    buffer_batch = flatten_concat(
+                        buffer_batch[0],
+                        buffer_batch[1],
+                        self.one_hot,
+                    ).to(self.model.device)
+                else:
+                    action_embed = np.asarray(
+                        [self.one_hot[ac[0]].numpy() for ac in buffer_batch[1]]
+                    )
+                    buffer_batch = np.concatenate([buffer_batch[0], action_embed], -1)
+                    buffer_batch = torch.from_numpy(buffer_batch).to(self.model.device)
 
                 buffer_labels = torch.zeros(len(buffer_batch)).to(
                     self.model.device
@@ -202,4 +239,4 @@ class VAILAgent:
         return actions
 
     def collect(self, *args):
-      self.rlagent.collect(*args)
+        self.rlagent.collect(*args)

@@ -6,7 +6,7 @@ from marlenv.wrappers import make_snake
 from rl2 import TEST_DATA_DIR
 from rl2.agents.gail import GAILAgent, discriminator
 from rl2.agents.ppo import PPOModel, PPOAgent
-from rl2.data_utils import FlatExpertTrajectory
+from rl2.data_utils import ExpertTrajectory
 from rl2.workers import MaxStepWorker
 
 TRAIN_INTERVAL = 128
@@ -28,7 +28,7 @@ if __name__ == '__main__':
     )
 
     one_hot = np.eye(env.action_space[0].n)
-    expert_trajs = FlatExpertTrajectory(num_episodes=8, one_hot=one_hot)
+    expert_trajs = ExpertTrajectory(num_episodes=8, one_hot=one_hot)
     expert_trajs.load_pickle(f'{TEST_DATA_DIR}/PPOAgent_trajs.pickle')
 
     disc = discriminator(obs_shape, ac_shape)

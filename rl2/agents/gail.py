@@ -5,7 +5,7 @@ from torch.utils.data import DataLoader
 
 from rl2.agents.base import Agent
 from rl2.agents.utils import general_advantage_estimation
-from rl2.data_utils import FlatExpertTrajectory, flatten_concat
+from rl2.data_utils import ExpertTrajectory, flatten_concat
 from rl2.models.base import BranchModel
 
 
@@ -52,7 +52,7 @@ class GAILAgent(Agent):
             rlagent,
             model,
             batch_size,
-            expert_trajs: FlatExpertTrajectory,
+            expert_trajs: ExpertTrajectory,
             one_hot,
             loss_fn=loss_fn,
             num_epochs=1,
