@@ -7,7 +7,6 @@ from marlenv.wrappers import make_snake
 import torch
 
 from rl2.examples.temp_logger import Logger
-from rlena.algos.utils import Logger
 from rl2.agents.ppo import PPOModel, PPOAgent
 from rl2.workers.multi_agent import MAMaxStepWorker, MAEpisodicWorker
 

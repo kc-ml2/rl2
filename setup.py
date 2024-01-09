@@ -9,6 +9,7 @@ setup(
     install_requires=[
         'tqdm',
         'termcolor',
+        'tensorboard',
         'tensorboardX',
         'matplotlib',
         'pillow',
