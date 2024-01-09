@@ -12,7 +12,7 @@ setup(
         'tensorboardX',
         'matplotlib',
         'pillow',
-        'sklearn',
+        'scikit-learn',
         'psutil',
         'mpi4py',
         'easydict',

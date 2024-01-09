@@ -18,7 +18,7 @@ def ppo(obs_shape, ac_shape, config, props, load_dir=None):
                      ac_shape,
                      recurrent=False,
                      discrete=True,
-                     reorder=props.reorder,
+                     reorder=True,#props.reorder,
                      optimizer='torch.optim.RMSprop',
                      high=props.high)
     if load_dir is not None:

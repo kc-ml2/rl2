@@ -80,7 +80,7 @@ class PPOModel(TorchModel):
                                   **kwargs)
 
         self.value = BranchModel(observation_shape, (1,),
-                                 encoder=self.policy.encoder,
+                                #  encoder=self.policy.encoder,
                                  encoded_dim=encoded_dim,
                                  discrete=False,
                                  deterministic=True,
@@ -184,6 +184,8 @@ class PPOAgent(Agent):
         self.val_coef = val_coef
         self.lamda = lamda
 
+        self.optimizer = torch.optim.Adam(self.model.parameters())
+
         # TODO: For rnn encoding. Should this be moved to base class?
         self.model._init_hidden(self.done)
         self.hidden = self.model.hidden
@@ -240,11 +242,14 @@ class PPOAgent(Agent):
                 else:
                     hidden = None
                 loss = self.loss_func(batch_data, self.model, hidden=hidden)
-                self.model.policy.step(loss, retain_graph=True)
-                self.model.value.step(loss)
+                # self.model.policy.step(loss)#, retain_graph=True)
+                # self.model.value.step(loss)
+                self.optimizer.zero_grad()
+                loss.backward()
+                self.optimizer.step()
                 losses.append(loss.item())
         info = {
-            'Loss/All': sum(losses) / len(losses)
+            'Loss/All': sum(losses) / (len(losses) + 1e-8)
         }
         return info
 

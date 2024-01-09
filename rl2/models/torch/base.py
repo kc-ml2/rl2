@@ -375,9 +375,11 @@ class BranchModel(TorchModel):
 
     def step(self, loss, retain_graph=False):
         self.optimizer.zero_grad()
+        
         loss.backward(retain_graph=retain_graph)
         torch.nn.utils.clip_grad_norm_(
-            self.parameters(), self.grad_clip)
+            self.parameters(), self.grad_clip
+        )
         self.optimizer.step()
 
     @abstractmethod

@@ -21,11 +21,11 @@ def ppo(obs_shape, ac_shape, config, props, load_dir=None):
         model.load(load_dir)
     agent = PPOAgent(model,
                      train_interval=config.train_interval,
-                     n_env=props.n_env,
+                     n_env=props.num_envs,
                      batch_size=config.batch_size,
                      num_epochs=config.epoch,
                      buffer_kwargs={'size': config.train_interval,
-                                    'n_env': props.n_env})
+                                    'n_env': props.num_envs})
     return agent
 
 
@@ -48,8 +48,10 @@ def train(config):
         frame_stack=config.frame_stack,
         reward_dict=custom_reward,
     )
+    props['reorder'] = True
+    props = EasyDict(props)
     agent = ppo(observation_shape, action_shape, config, props)
-    worker = MaxStepWorker(env, props.n_env, agent,
+    worker = MaxStepWorker(env, props.num_envs, agent,
                            max_steps=config.max_step, training=True,
                            log_interval=config.log_interval,
                            render=True,
@@ -111,6 +113,6 @@ if __name__ == "__main__":
         # 'tag': 'TUTORIAL/normal_rew',
     config = EasyDict(myconfig)
 
-    # log_dir = train(config)
-    log_dir = 'runs/TUTORIAL/normal_rew/20210414161829'
-    test(config, load_dir=log_dir)
+    log_dir = train(config)
+    # log_dir = 'runs/TUTORIAL/normal_rew/20210414161829'
+    # test(config, load_dir=log_dir)
